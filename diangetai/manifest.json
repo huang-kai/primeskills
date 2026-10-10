@@ -1,0 +1,30 @@
+{
+  "name": "diangetai",
+  "description": "按配置时长播放歌曲，可联动当前双足/四足形态的舞蹈、表情和灯光。",
+  "entrypoint": "src/skill.py",
+  "actions": {
+    "play": {
+      "parameters": {
+        "artist": {
+          "type": "string"
+        },
+        "song": {
+          "type": "string"
+        }
+      },
+      "resources": [
+        "speaker.music",
+        "robot.motion",
+        "robot.expression",
+        "robot.lights"
+      ]
+    }
+  },
+  "version": "0.2.3",
+  "api_version": 1,
+  "setup": "src/setup.py",
+  "dependencies": [
+    "qqmusic-api-python==0.7.3",
+    "Pillow==11.3.0"
+  ]
+}

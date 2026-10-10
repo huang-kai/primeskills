@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+dist/
+_deps/
+.DS_Store
+.env
+.env.*
+data/
+runtime/
+logs/
+model.json
+credential.json
