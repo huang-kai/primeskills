@@ -1,30 +1,120 @@
-# yeelight · PrimeBuddy 灯控 skill
+# 易来灯控 yeelight
 
-版本0.2.0，使用标准 SKILL.md 和 PrimeBuddy 0.4.0 的可选原生工具适配。主框架不需要了解易来家庭、账号或 MCP 参数。
+易来灯控让 PrimeBuddy 通过语音打开或关闭灯具。可以操作一盏灯、一个房间的灯，或明确指定全屋灯光。
 
-安装 ZIP 或 Git 仓库时自动调用 `src/setup.py`：配置本地 `yeelight-home` 可执行文件、家庭 ID 和配置档，通过只读 MCP 实体查询确认连接。账号登录沿用现有易来工具。本技能没有新增账号扫码协议，也不安装 Node.js。
+当前版本为 **0.2.0**，配合 **PrimeBuddy 1.0.0** 使用。本技能通过本地 `yeelight-home` 工具访问家庭和设备，不直接连接灯具。目前接入的是开关功能。
+
+## 使用前准备
+
+先安装并配置 PrimeBuddy，在运行框架的机器上准备好：
+
+- 可执行的 `yeelight-home` 工具。
+- 该工具已登录的易来账号和对应家庭访问权限。
+- 要控制的家庭 ID；使用多个账号配置档时，还需要配置档名称。
+
+账号登录由 `yeelight-home` 管理，安装本技能不会自动安装或登录该工具。
+
+## 安装与配置
+
+拿到本技能的 RPK 后，执行：
+
+```bash
+primebuddy skill install ./yeelight-0.2.0.rpk
+```
+
+也可以直接安装源码目录：
 
 ```bash
 git clone https://github.com/huang-kai/primeskills.git primebuddy-skills
-python3 ~/.primebuddy/src/primebuddy/tools/build_release.py --skill ./primebuddy-skills/yeelight --output-dir ./dist
-primebuddy skill install ./dist/yeelight-0.2.0.rpk
+primebuddy skill install ./primebuddy-skills/yeelight
+```
+
+安装向导会询问：
+
+| 配置项 | 填写内容 |
+| --- | --- |
+| 可执行文件 | `yeelight-home` 命令名，或它的绝对路径 |
+| 家庭 ID | 要控制的家庭 |
+| 配置档名称 | `default` 使用工具默认账号，也可填写已有配置档 |
+
+向导会读取家庭和设备列表来确认连接，不发送开关灯命令。配置失败时，可以检查账号授权、家庭 ID 和可执行文件路径后重试。
+
+以后重新配置，使用：
+
+```bash
 primebuddy skill configure yeelight
 ```
 
-运行入口 `src/skill.py` 负责目标校验、灯名澄清、开关控制及状态读回。业务配置保存在 `PRIMEBUDDY_HOME/cfg/skills/yeelight/config.yaml`。实际灯状态未确认时不会返回成功；安装引导不会发送灯控命令。
+完成后，重新启动语音会话生效。
 
-源码位于 [huang-kai/primeskills 的 yeelight 目录](https://github.com/huang-kai/primeskills/tree/main/yeelight)。本仓库包含多个技能，安装时使用上面的单技能 ZIP；ZIP 根目录包含 `cfg/pkg.yaml`、`SKILL.md`、`README.md` 与 `src/`。技能使用现有原生 `yeelight-home` 工具，通过 stdio MCP 调用，框架本身无需易来依赖。
-
-## 本地目录与验证
-
-根目录保留 `main.py`、`README.md`、`SKILL.md`、`requirements.txt` 和 Git 忽略文件。配置在 `cfg`，实现代码在 `src`，静态资源在 `resource`，主要功能测试在 `tests`。`docs` 是可选的本地开发文档，暂不提交 Git。
+## 怎么使用
 
 ```bash
-python3 main.py --check
+primebuddy start
 ```
 
-该 --check 入口仅校验本地说明和文件路径，不执行业务；python3 main.py configure 可独立运行 Console 向导。开发时使用相邻框架源码或通过 PYTHONPATH 提供框架；安装到 ~/.primebuddy/skills 后自动找到同一目录下的框架。框架测试脚本会执行本技能的离线回归；本次重构没有部署或进行实机验收。默认配置见 `cfg/config.yaml`；原生业务入口为 set_power(context, power, scope, room, device)。
+唤醒机器人后，可以说：
 
-包元信息使用 cfg/pkg.yaml，与工作区启元技能样例保持字段风格：user_id、version、sdk_version、package_name、author、description。作者为 PrimeBuddy，user_id 为 robot_local，sdk_version 为 v1.0.0；SDK 字段是开发参考信息，易来仍不直接调用机器人 SDK。PrimeBuddy 运行声明集中在 primebuddy 节点。依赖以 requirements.txt 为准，SKILL.md 在根目录。
+- “打开客厅的吸顶灯。”
+- “关闭厨房的灯。”
+- “关闭全屋灯光。”
 
-也可直接 primebuddy skill install ./yeelight，或把目录复制到 PRIMEBUDDY_HOME/skills/yeelight 后配置并重启会话。Agent 先读取 SKILL.md 和真实目标上下文，再提交控制；名称修正须确认，写入后仍核实实际状态。本次未控制真实灯具。
+房间和灯具名称以家庭中的实际名称为准。多个设备同名或名称不明确时，机器人会询问目标；发现唯一的近似名称时，也会先确认。只有明确要求全屋操作时，才会控制整个家庭。
+
+技能会核实控制结果，实际状态未确认时不会报告“已打开”或“已关闭”，也不会自动重复控制。目前尚未接入亮度、色温、渐变、闪烁或场景等功能。
+
+## 配置与管理
+
+默认业务配置在 `~/.primebuddy/cfg/skills/yeelight/config.yaml`：
+
+```yaml
+executable: yeelight-home
+house_id: "你的家庭 ID"
+profile: null
+```
+
+`profile: null` 表示工具默认账号。配置向导填入 `default` 时会保存为这个值。账号登录数据仍由 `yeelight-home` 管理。
+
+更新已有技能：
+
+```bash
+primebuddy skill install ./yeelight-0.2.0.rpk --replace
+```
+
+临时不用时执行 `primebuddy skill disable yeelight`；删除技能的步骤见 [管理技能](https://github.com/huang-kai/primeskills#管理技能)。删除本技能不会注销外部 `yeelight-home` 的账号。
+
+## 工作原理与开发
+
+框架读取 `SKILL.md` 后，将开关请求交给 `set_power`。技能通过本地 MCP 通信查询真实目标，再调用 `yeelight-home` 控制接口，并根据反馈核实结果。
+
+| 位置 | 职责 |
+| --- | --- |
+| `SKILL.md`、`cfg/pkg.yaml` | 技能说明、包信息和业务入口声明 |
+| `src/skill.py` | `set_power` 入口及目标上下文 |
+| `src/setup.py`、`src/configuration.py` | 配置和连接验证 |
+| `src/business/` | 参数校验和控制结果处理 |
+| `src/integrations/mcp_client.py` | 本地 MCP 连接与灯控调用 |
+| `tests/` | 目标解析、控制反馈等主要测试 |
+
+本技能没有额外的 Python 第三方依赖；外部工具的安装和依赖由该工具自身负责。普通技能开发方法见 [框架教程](https://github.com/huang-kai/primebuddy#开发一个-skill)。
+
+框架与技能仓库相邻时，从技能仓库根目录执行：
+
+```bash
+python3 yeelight/main.py --check
+PYTHONPATH=../primebuddy/src python3 -m unittest discover -s yeelight/tests -v
+```
+
+测试使用模拟接口，不连接真实家庭或控制灯具。
+
+从框架源码目录打包：
+
+```bash
+python3 src/primebuddy/tools/build_release.py --skill ../primebuddy-skills/yeelight
+```
+
+输出为 `dist/yeelight-0.2.0.rpk`，其中包含 README 和 LICENSE。发布新版本前修改 `cfg/pkg.yaml` 的 `version`；真实账号和私有配置不要放进发布包。贡献步骤见 [仓库说明](https://github.com/huang-kai/primeskills#参与贡献)。
+
+## 开源协议
+
+本技能采用 [MIT 协议](LICENSE)。独立分发时请保留 LICENSE；`yeelight-home` 和其他第三方组件遵循各自的协议。
