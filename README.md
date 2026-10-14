@@ -11,15 +11,16 @@
 
 ## 安装一个技能
 
-先安装并配置 PrimeBuddy。然后从本仓库生成单个技能的 ZIP：
+先安装并配置当前 PrimeBuddy。然后使用已安装框架的打包工具生成单个技能的 RPK，内容为 ZIP，名称自动读取技能名称与版本：
 
 ```bash
 git clone https://github.com/huang-kai/primeskills.git primebuddy-skills
-git -C primebuddy-skills archive --format=zip --output=../diangetai-skill.zip HEAD:diangetai
-primebuddy skill install ./diangetai-skill.zip
+python3 ~/.primebuddy/src/primebuddy/tools/build_release.py \
+  --skill-only ./primebuddy-skills/diangetai --output-dir ./dist
+primebuddy skill install ./dist/diangetai-0.3.0.rpk
 ```
 
-安装易来时，将上面的目录 `HEAD:diangetai` 换成 `HEAD:yeelight`，并修改 ZIP 文件名。安装新版本前先退出平台，再在安装命令末尾加 `--replace`；重新配置使用：
+安装易来时，将技能目录换成 `./primebuddy-skills/yeelight`，生成并安装 `yeelight-0.2.0.rpk`。安装新版本前先退出平台，再在安装命令末尾加 `--replace`；重新配置使用：
 
 ```bash
 primebuddy skill configure diangetai
@@ -27,7 +28,7 @@ primebuddy skill list
 primebuddy start
 ```
 
-本仓库根目录是技能集合，不能直接作为单个 skill 传给 `primebuddy skill install`。该命令的 Git 来源要求仓库根目录包含 `SKILL.md`；本集合使用上面的单技能 ZIP 安装方式。也可以在 GitHub 下载仓库源码 ZIP，解压后用框架的打包工具生成指定技能包。
+本仓库根目录是技能集合，不能直接作为单个 skill 传给 `primebuddy skill install`。该命令的 Git 地址要求仓库根目录包含 `SKILL.md`；本集合使用上面的单技能 RPK 安装方式。也可以在 GitHub 下载仓库源码 ZIP，解压后生成指定技能包。旧 ZIP 包仍能安装。
 
 点歌台启用音乐联动后会产生机器人动作，具体姿态检查与行为见其 README。配置向导本身不会播放歌曲或控制机器人动作。
 
@@ -41,11 +42,13 @@ git clone https://github.com/huang-kai/primeskills.git primebuddy-skills
 
 cd primebuddy
 bash scripts/test.sh
-python3 src/primebuddy/tools/build_release.py --skill-only ../primebuddy-skills/diangetai --output /tmp/diangetai-skill-0.3.0.zip
+python3 src/primebuddy/tools/build_release.py
 ```
 
-`primeskills` 是 GitHub 仓库名，`primebuddy-skills` 是上述工作区目录名。每个技能可以独立修改和打包；技能接口见 [skill 开发契约](../PrimeBuddy/docs/skill-development.md)。测试使用模拟业务接口，不要求机器人或真实账号；框架的 SDK 夹具测试在缺少厂商 SDK 时会明确跳过。
+默认在框架 `dist/` 分别生成 `primebuddy-1.0.0.rpk`、`diangetai-0.3.0.rpk`、`yeelight-0.2.0.rpk`；重复生成同版本包时加 `--overwrite`。`--skill-only` 可只打包一个技能，`--output-dir` 指定输出目录。
+
+`primeskills` 是 GitHub 仓库名，`primebuddy-skills` 是上述工作区目录名。每个技能可以独立修改和打包；开发步骤见 [框架 README](https://github.com/huang-kai/primebuddy#开发一个-skill)。测试使用模拟业务接口，不要求机器人或真实账号；框架的 SDK 夹具测试在缺少厂商 SDK 时会明确跳过。
 
 源码不包含账号配置、运行记录、第三方安装目录或厂商 SDK。许可证尚未选定，当前未附 LICENSE 文件。
 
-本地开发也可直接安装单技能目录：primebuddy skill install ./diangetai。根目录 main.py 支持 --check 与 configure。完整说明见框架 docs/skill-development.md。0.3.0点歌台、0.2.0易来与0.4.0框架须一起更新；新版业务函数入口尚未部署到机器人。
+本地开发也可直接安装单技能目录：primebuddy skill install ./diangetai。根目录 main.py 支持 --check 与 configure。0.3.0 点歌台、0.2.0 易来与当前 1.0.0 框架配套使用；框架打包器、安装器和向导均支持 RPK。

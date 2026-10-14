@@ -8,13 +8,13 @@
 
 ```bash
 git clone https://github.com/huang-kai/primeskills.git primebuddy-skills
-git -C primebuddy-skills archive --format=zip --output=../diangetai-skill-0.3.0.zip HEAD:diangetai
+python3 ~/.primebuddy/src/primebuddy/tools/build_release.py --skill-only ./primebuddy-skills/diangetai --output-dir ./dist
 ```
 
 ```bash
-primebuddy skill install ./diangetai-skill-0.3.0.zip
+primebuddy skill install ./dist/diangetai-0.3.0.rpk
 # 已安装旧版时：
-primebuddy skill install ./diangetai-skill-0.3.0.zip --replace
+primebuddy skill install ./dist/diangetai-0.3.0.rpk --replace
 # 以后修改时长或联动开关：
 primebuddy skill configure diangetai
 ```
@@ -50,7 +50,7 @@ PrimeBuddy 1.0.0 使用 `primebuddy start` 启动，并随包提供点歌台0.3.
 根目录 `requirements.txt` 的依赖为 `qqmusic-api-python==0.7.3` 和 `Pillow==11.3.0`，由框架装进技能私有依赖目录。将框架克隆到 `primebuddy/`、本仓库克隆到相邻的 `primebuddy-skills/` 后，从它们的父目录执行：
 
 ```bash
-python3 primebuddy/src/primebuddy/tools/build_release.py --skill-only primebuddy-skills/diangetai --output /tmp/diangetai-skill-0.3.0.zip
+python3 primebuddy/src/primebuddy/tools/build_release.py --skill-only primebuddy-skills/diangetai --output-dir /tmp/releases
 PYTHONPATH=primebuddy/src python3 -m unittest discover -s primebuddy-skills/diangetai/tests -v
 ```
 

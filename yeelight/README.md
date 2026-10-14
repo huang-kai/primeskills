@@ -6,8 +6,8 @@
 
 ```bash
 git clone https://github.com/huang-kai/primeskills.git primebuddy-skills
-git -C primebuddy-skills archive --format=zip --output=../yeelight-skill.zip HEAD:yeelight
-primebuddy skill install ./yeelight-skill.zip
+python3 ~/.primebuddy/src/primebuddy/tools/build_release.py --skill-only ./primebuddy-skills/yeelight --output-dir ./dist
+primebuddy skill install ./dist/yeelight-0.2.0.rpk
 primebuddy skill configure yeelight
 ```
 
