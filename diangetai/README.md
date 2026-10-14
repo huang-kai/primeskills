@@ -27,7 +27,7 @@ primebuddy skill configure diangetai
 
 修改后重新启动 PrimeBuddy 语音会话生效。旧配置没有新增字段时，仍整首播放且不启用联动；不会因升级自动跳舞。模型可读取当前时长和开关，但不能自行更改配置或选择其他运动。
 
-PrimeBuddy 0.4.0 使用 `primebuddy start` 启动，并随包提供点歌台0.3.0。框架向导会选中较新的随包技能供一起更新，已保存且有效的 QQ 登录态继续复用。点歌台向导只依赖通用 UI 控件，不调用 `ui.qr()`。
+PrimeBuddy 1.0.0 使用 `primebuddy start` 启动，并随包提供点歌台0.3.0。框架向导会选中较新的随包技能供一起更新，已保存且有效的 QQ 登录态继续复用。点歌台向导只依赖通用 UI 控件，不调用 `ui.qr()`。
 
 配置位于 `PRIMEBUDDY_HOME/cfg/skills/diangetai/config.yaml`，包含 `play_seconds` 和 `music_effects`。可直接修改 YAML，退出并重新启动平台后生效；`play_seconds: 0` 表示整首，`music_effects: false` 关闭联动。登录态仍在 `PRIMEBUDDY_HOME/data/diangetai/credential.json`，升级与改时长不会覆盖登录态。QQ 账号须有对应歌曲的播放权限；不绕过权限或将试听当整曲。
 
