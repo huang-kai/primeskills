@@ -1,7 +1,9 @@
 """灯控业务，保留现有设备解析与实际状态校验。"""
 import time
-from . import mcp_client
-from primebuddy.grounding import normalized
+from .configuration import DEFAULT_EXECUTABLE
+from .integrations import mcp_client
+from .business.feedback import parse_power_state
+from primebuddy.core.grounding import normalized
 
 
 def validate(action, args):
@@ -23,7 +25,7 @@ def planning_context(context):
     """只读会话快照，为模型提供真实名称；执行仍重新解析目标。"""
     if context.simulate or not context.config_for('yeelight').get('house_id', ''):
         return {'status': 'unavailable'}
-    with mcp_client.LocalMcp(context.config_for('yeelight').get('executable', 'yeelight-home'), context.config_for('yeelight').get('profile'), context.checkpoint) as mcp:
+    with mcp_client.LocalMcp(context.config_for('yeelight').get('executable', DEFAULT_EXECUTABLE), context.config_for('yeelight').get('profile'), context.checkpoint) as mcp:
         response = mcp.call('yeelight_home_list_entities',
                             {'houseId': context.config_for('yeelight').get('house_id', ''), 'locale': 'zh-CN'})
     if response['status'] != 'success':
@@ -67,23 +69,13 @@ def confirmation(action, args, text, snapshot):
     return None
 
 
-def power_value(value):
-    if type(value) is bool:
-        return value
-    if type(value) in (int, float) and value in (0, 1):
-        return bool(value)
-    if isinstance(value, str) and value.lower() in {'on', 'off', 'true', 'false', '0', '1'}:
-        return value.lower() in {'on', 'true', '1'}
-    return None
-
-
 def confirm_delayed_state(args, context):
     """云端写后可能仍读到旧状态；只复核单灯，不重发写入。"""
-    from .mcp_client import LocalMcp
+    from .integrations.mcp_client import LocalMcp
     query = {'houseId': context.config_for('yeelight').get('house_id', ''), 'deviceName': args['device'], 'locale': 'zh-CN'}
     if args['room']:
         query['roomName'] = args['room']
-    with LocalMcp(context.config_for('yeelight').get('executable', 'yeelight-home'), context.config_for('yeelight').get('profile'), context.checkpoint) as mcp:
+    with LocalMcp(context.config_for('yeelight').get('executable', DEFAULT_EXECUTABLE), context.config_for('yeelight').get('profile'), context.checkpoint) as mcp:
         for attempt in range(3):
             if attempt:
                 # 可取消等待；不阻塞主线程的音频处理。
@@ -96,19 +88,21 @@ def confirm_delayed_state(args, context):
                 return False
             properties = response.get('result', {}).get('properties', {})
             if (properties.get('online') is True
-                    and power_value(properties.get('power')) is args['power']):
+                    and parse_power_state(properties.get('power')) is args['power']):
                 return True
     return False
 
 
-def run(action, args, context):
+def set_power(context, power, scope, room, device):
+    args = {'power': power, 'scope': scope, 'room': room, 'device': device}
+    validate('set_power', args)
     context.checkpoint()
     if context.simulate:
-        return {'status': 'success', 'message': '模拟：' + describe(action, args)[2:] + '完成。'}
-    from .mcp_client import McpLightClient
-    from .client import reply_for
-    client = McpLightClient(context.config_for('yeelight').get('house_id', ''), context.config_for('yeelight').get('executable', 'yeelight-home'), context.config_for('yeelight').get('profile'), context.checkpoint)
-    response = client.execute('', dict(args, intent='set_power'))
+        return {'status': 'success', 'message': '模拟：' + describe('set_power', args)[2:] + '完成。'}
+    from .integrations.mcp_client import McpLightClient
+    from .business.feedback import reply_for
+    client = McpLightClient(context.config_for('yeelight').get('house_id', ''), context.config_for('yeelight').get('executable', DEFAULT_EXECUTABLE), context.config_for('yeelight').get('profile'), context.checkpoint)
+    response = client.execute(dict(args, intent='set_power'))
     if response.get('suggestedIntent'):
         return {'status': 'clarification_required',
                 'message': '灯名未匹配。请重新说完整指令，例如：关闭' + response['suggestedIntent']['device'] + '。'}
@@ -119,8 +113,8 @@ def run(action, args, context):
         # 只有确认状态一致才允许依赖任务继续。
         expected = args['power']
         immediate_verified = (result.get('verified') is True
-                              and power_value(result.get('verifiedValue')) is expected
-                              and power_value(result.get('expectedValue')) is expected)
+                              and parse_power_state(result.get('verifiedValue')) is expected
+                              and parse_power_state(result.get('expectedValue')) is expected)
     if status in {'success', 'partial'} and not immediate_verified:
         if args['scope'] == 'device' and confirm_delayed_state(args, context):
             return {'status': 'success', 'message': args['device'] + ('已打开。' if args['power'] else '已关闭。')}

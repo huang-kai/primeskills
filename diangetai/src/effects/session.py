@@ -1,7 +1,7 @@
 """技能独占自己的 ROS 节点与执行器，不重入框架语音线程。"""
 from contextlib import contextmanager
 
-from primebuddy.voice_support.robot_audio import RobotAudio
+from primebuddy.integrations.t1.robot_audio import RobotAudio
 from .music_effects import MusicEffects
 
 

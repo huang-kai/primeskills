@@ -1,7 +1,8 @@
 """易来技能自己的配置与只读连接验证；框架无需了解家庭或 MCP 字段。"""
 import shutil
+from .configuration import DEFAULT_EXECUTABLE
 
-from .mcp_client import LocalMcp
+from .integrations.mcp_client import LocalMcp
 
 
 def setup(ui, data, config):
@@ -9,7 +10,7 @@ def setup(ui, data, config):
     while True:
         if not ui.confirm('现在配置易来连接？', default=True):
             return None
-        executable = ui.ask('yeelight-home 可执行文件', config.get('executable', 'yeelight-home'))
+        executable = ui.ask('yeelight-home 可执行文件', config.get('executable', DEFAULT_EXECUTABLE))
         house = ui.ask('家庭 ID', config.get('house_id', ''))
         profile = ui.ask('配置档名称（default 使用工具默认账号）', config.get('profile') or 'default')
         current = {'executable': executable, 'house_id': house, 'profile': None if profile == 'default' else profile}

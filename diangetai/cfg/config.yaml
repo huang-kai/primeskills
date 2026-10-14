@@ -1,0 +1,5 @@
+play_seconds: 0 # 未配置播放时长时播放整首歌；正整数表示秒数。
+music_effects: false # 未配置时关闭动作、表情和灯光联动。
+setup: # 首次安装向导的建议值；用户确认后写入私有 config.yaml。
+  play_seconds: 60
+  music_effects: true

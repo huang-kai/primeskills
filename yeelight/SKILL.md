@@ -1,11 +1,13 @@
 ---
 name: yeelight
 description: 通过本地易来 MCP 开关指定灯具或房间的灯。用户要求打开或关闭灯时使用。
+compatibility: 需要 PrimeBuddy 原生工具适配和已登录的 yeelight-home。
 ---
 
 # 易来灯控
 
-使用 `set_power`，参数见 [manifest.json](manifest.json)，实现见 [src/skill.py](src/skill.py)。
+先调用 `get_skill_context` 获取真实房间和设备名称，再通过 `execute_tasks` 调用原生 `set_power` 工具。
+参数见 [cfg/pkg.yaml](cfg/pkg.yaml)，实现见 [src/skill.py](src/skill.py)。
 `power` 为布尔值；`scope` 为 device、room 或 home。
 指定灯具填写 device，可附加 room；指定整个房间填写 room，device 为空；
 只有明确要求全屋时使用 home，room/device 均为空。
@@ -18,3 +20,4 @@ description: 通过本地易来 MCP 开关指定灯具或房间的灯。用户�
 未确认结果不自动重试。认证失效返回 auth_required，由主程序统一播报。
 本版只注册开关动作；闪烁、亮度渐变、循环变色、场景尚未接入，不能虚构调用。
 不访问 ASR、LLM、TTS 或机器人运动接口。
+配置使用 `primebuddy skill configure yeelight`，也可在技能目录运行 `python3 main.py configure`。

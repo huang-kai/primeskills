@@ -1,9 +1,12 @@
 """点歌台联动：保持站立形态，歌曲结束时恢复原站立状态和灯光。"""
 import json
+import logging
 import random
 import time
 
-from primebuddy.voice_support.robot_audio import AudioError
+from primebuddy.integrations.t1.robot_audio import AudioError
+
+logger = logging.getLogger('primebuddy.skills.diangetai.music_effects')
 
 # 来自当前 T1 部署接口的枚举；动作、运行状态和灯光模式不是同一套编号。
 QUAD_STAND_ACTION = 101
@@ -109,7 +112,7 @@ class DanceController:
         result = {'action': info.current_action.value, 'action_desc': info.action_desc,
                   'status': info.status.value, 'rgb': self.light_state,
                   'posture': self.posture_name, 'motion': self.motion_name}
-        print('EFFECT_PREFLIGHT', json.dumps(result, ensure_ascii=False), flush=True)
+        logger.info('EFFECT_PREFLIGHT %s', json.dumps(result, ensure_ascii=False))
         return result
 
     def require_stand(self):
@@ -155,12 +158,12 @@ class DanceController:
             req.operation = req.EXECUTION
         req.interrupt = False
         res = self.rpc('SetMcMotion', req)
-        print('MOTION_SUBMITTED', res.response.task_id, flush=True)
+        logger.info('MOTION_SUBMITTED %s', res.response.task_id)
         deadline = time.monotonic() + 8
         while True:
             info = self.action()
             if info.current_action.value == self.dance_action and info.status.value == ACTION_RUNNING:
-                print('DANCE_MOTION_MODE_CONFIRMED', self.motion_name, flush=True)
+                logger.info('DANCE_MOTION_MODE_CONFIRMED %s', self.motion_name)
                 return
             if time.monotonic() >= deadline:
                 raise AudioError('未确认' + self.motion_name + '进入运行，尝试恢复。')
@@ -197,7 +200,7 @@ class DanceController:
                     and self.motion_received_at >= after
                     and self.motion_state.action_info.current_action.value == self.stand_action
                     and not self.motion_state.is_moving and not self.motion_state.is_fallen):
-                print('DANCE_STAND_RESTORED', self.posture_name, self.stand_action, flush=True)
+                logger.info('DANCE_STAND_RESTORED %s %s', self.posture_name, self.stand_action)
                 return
             if time.monotonic() >= deadline:
                 raise AudioError('未确认' + self.posture_name + '站立恢复。')
@@ -220,7 +223,7 @@ class DanceController:
             self.robot.spin(cancellable=False)
             if time.monotonic() >= deadline:
                 raise AudioError('未确认灯光恢复。')
-        print('RGB_RESTORED', original, flush=True)
+        logger.info('RGB_RESTORED %s', original)
 
 
 class MusicEffects(DanceController):
@@ -251,7 +254,7 @@ class MusicEffects(DanceController):
         if self.require_ready() != action:
             raise AudioError('准备期间姿态已变化，未发送起身指令。')
         if action in self.standing_actions:
-            print('DANCE_POSTURE_PRESERVED', self.posture_name, self.stand_action, flush=True)
+            logger.info('DANCE_POSTURE_PRESERVED %s %s', self.posture_name, self.stand_action)
             return
         # 记录先于写入请求；超时或中断可能已生效，保留记录且绝不重发起身。
         with self.record.open('x') as output:
@@ -259,7 +262,7 @@ class MusicEffects(DanceController):
             json.dump({'phase': 'preparing_stand', 'initial_action': action,
                        'stand_action': self.stand_action, 'motion': self.motion_name}, output)
         self.stand_pending = True
-        print('QUAD_STAND_REQUEST', flush=True)
+        logger.info('QUAD_STAND_REQUEST')
         requested_at = time.monotonic()
         self.set_stand()
         self.wait_stand(after=requested_at)
@@ -289,7 +292,7 @@ class MusicEffects(DanceController):
         emotion_id = random.choice(HAPPY_EMOTION_IDS)
         self.emotion_submitted = True  # 请求超时也可能生效，清理时仍需切回空表情。
         self.play_emotion(emotion_id)
-        print('HAPPY_EMOTION_REQUEST_ACCEPTED', emotion_id, flush=True)
+        logger.info('HAPPY_EMOTION_REQUEST_ACCEPTED %s', emotion_id)
         self.next_color_at = self.color_index = 0
         self.next_motion_check_at = time.monotonic() + 1
 
@@ -342,4 +345,4 @@ class MusicEffects(DanceController):
         self.record.unlink()
         self.emotion_submitted = False
         self.original_light_state = self.last_owned_light_state = None
-        print('MUSIC_EFFECTS_RESTORED', flush=True)
+        logger.info('MUSIC_EFFECTS_RESTORED')

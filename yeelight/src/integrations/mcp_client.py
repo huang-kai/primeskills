@@ -1,15 +1,19 @@
 """本地 stdio MCP：握手、工具发现、单次调用，不自动重试写入。"""
 import json
+import logging
 from difflib import SequenceMatcher
 import os
 import selectors
 import subprocess
 import time
-from .client import LightError
+from ..configuration import DEFAULT_EXECUTABLE
+from ..business.feedback import LightError
+
+logger = logging.getLogger('primebuddy.skills.yeelight.mcp_client')
 
 
 class LocalMcp:
-    def __init__(self, executable='yeelight-home', profile=None, checkpoint=None):
+    def __init__(self, executable=DEFAULT_EXECUTABLE, profile=None, checkpoint=None):
         self.executable, self.profile, self.checkpoint = executable, profile, checkpoint
         self.process = None
         self.pending = bytearray()
@@ -107,12 +111,12 @@ class LocalMcp:
 
 
 class McpLightClient:
-    def __init__(self, house_id, executable='yeelight-home', profile=None, checkpoint=None):
+    def __init__(self, house_id, executable=DEFAULT_EXECUTABLE, profile=None, checkpoint=None):
         self.house_id, self.executable, self.profile = house_id, executable, profile
-        self.checkpoint, self.dry_run = checkpoint, False
+        self.checkpoint = checkpoint
 
-    def execute(self, text, intent, before_execute=None):
-        from .intent import validate
+    def execute(self, intent):
+        from ..business.intent import validate
         intent = validate(intent)
         if intent['intent'] != 'set_power':
             raise LightError('非灯控意图不得执行 MCP 写入。')
@@ -138,16 +142,9 @@ class McpLightClient:
                 corrected = dict(intent, device=suggestion['name'])
                 return {'contractVersion': '1.0', 'status': 'clarification_required',
                         'suggestedIntent': corrected}
-            print('LIGHT_TARGET', json.dumps({key: args[key] for key in
+            logger.info('LIGHT_TARGET %s', json.dumps({key: args[key] for key in
                   ('targetType', 'targetId', 'targetName', 'roomName') if key in args},
-                  ensure_ascii=False), flush=True)
-            if before_execute is not None:
-                resolved = intent
-                if args['targetType'] == 'room' and args.get('targetId'):
-                    room = next(entity['name'] for entity in entities
-                                if entity.get('type') == 'room' and entity.get('id') == args['targetId'])
-                    resolved = dict(intent, scope='room', room=room, device='')
-                before_execute(resolved)
+                  ensure_ascii=False))
             return mcp.call('yeelight_home_control_light', args)
 
 

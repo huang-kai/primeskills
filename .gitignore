@@ -10,4 +10,16 @@ data/
 runtime/
 logs/
 model.json
+model.yaml
 credential.json
+# 开发文档仅保留在本地，暂不提交。
+docs/
+# 各 skill 的测试音频仅保留在本地。
+/*/tests/**/*.m4a
+/*/tests/**/*.wav
+/*/tests/**/*.mp3
+/*/tests/**/*.flac
+/*/tests/**/*.ogg
+/*/tests/**/*.aac
+/*/tests/**/*.pcm
+/*/tests/**/*.opus

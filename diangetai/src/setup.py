@@ -1,9 +1,9 @@
 """点歌台安装引导：复用有效账号，或扫码登录后向服务器确认。"""
 import asyncio
 
-from .qqmusic_client import check_login, save_credential
-from .config import configure_playback
-from .qr import show_qr
+from .music.qqmusic_client import check_login, save_credential
+from .configuration.playback import configure_playback, DEFAULTS
+from .configuration.qr import show_qr
 
 
 async def login(ui, data):
@@ -41,9 +41,9 @@ def setup(ui, data, config):
             ui.info('登录未完成（' + type(error).__name__ + '）。请检查网络或手机上的授权状态。')
             if ui.choose('下一步', ['重新获取二维码 / 重试', '稍后配置']) == 1:
                 return None
-    result = configure_playback(ui, config, default_seconds=60)
+    result = configure_playback(ui, config, default_seconds=DEFAULTS['setup']['play_seconds'])
     ui.info('音乐联动会在四足趴卧时先起身到四足站立；已经站立则保持双足/四足形态，再联动舞蹈、表情和灯光。')
     ui.info('启用后点歌会产生身体运动，请确保周围空旷且可随时急停；配置过程不执行动作。')
-    result['music_effects'] = ui.confirm('启用音乐联动？', default=config.get('music_effects', True))
+    result['music_effects'] = ui.confirm('启用音乐联动？', default=config.get('music_effects', DEFAULTS['setup']['music_effects']))
     ui.info('点歌台配置完成。')
     return result

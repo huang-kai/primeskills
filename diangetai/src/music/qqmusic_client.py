@@ -4,10 +4,13 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 import time
 import json
+import logging
 import urllib.parse
 
-from primebuddy.settings import read_json, write_json, skill_data
-from primebuddy.voice_support.timing import measure
+from primebuddy.config.storage import read_json, write_json, skill_data
+from primebuddy.core.timing import measure
+
+logger = logging.getLogger('primebuddy.skills.diangetai.qqmusic_client')
 
 
 def load_credential(data=None):
@@ -52,7 +55,7 @@ def matching_songs(songs, intent: SearchQuery):
 async def search(intent, client=None):
     from qqmusic_api import Client
     async with (nullcontext(client) if client is not None else Client(credential=load_credential())) as client:
-        with measure('QQ搜索'):
+        with measure('QQ搜索', '正在搜索 QQ 音乐…'):
             result = await asyncio.wait_for(client.search.search_by_type(keyword=intent.keyword, num=10, highlight=False), 30)
         songs = matching_songs(result.song, intent)
         if not songs:
@@ -74,13 +77,10 @@ def validate_url(url):
     return url
 
 
-def validate_duration(actual, expected):
-    if not 0 < expected <= 600 or abs(actual - expected) > max(3, expected * .03):
-        raise SkillError('资源时长与歌曲不匹配，可能为试听或不完整资源，未播放。')
-
 
 async def select_song(intent):
     from qqmusic_api import Client
+    from qqmusic_api.core.exceptions import CredentialExpiredError
     credential = load_credential()
     if credential is None:
         raise SkillError('获取歌曲资源前请先运行 primebuddy skill configure diangetai 完成登录。')
@@ -105,10 +105,13 @@ async def select_song(intent):
                 return song, url
             finally:
                 close_started = time.monotonic()
+    except CredentialExpiredError:
+        # 搜索成功不代表登录仍有效，取流也可能被服务端拒绝。
+        raise SkillError('QQ 音乐登录已过期，请运行 primebuddy skill configure diangetai 重新扫码登录。') from None
     finally:
         if close_started is not None:
-            print('STAGE_TIME', json.dumps({'stage': 'QQ连接关闭',
-                  'seconds': round(time.monotonic() - close_started, 3)}, ensure_ascii=False), flush=True)
+            logger.info('STAGE_TIME %s', json.dumps({'stage': 'QQ连接关闭',
+                  'seconds': round(time.monotonic() - close_started, 3)}, ensure_ascii=False))
 
 
 async def song_url(song, client=None):
@@ -133,7 +136,7 @@ async def song_url(song, client=None):
                 code = info.result if info else 'missing'
                 raise SkillError(f'该歌曲未取得可播放资源（result={code}）；未尝试绕过权限。')
             if info.purl:
-                print('QQ_AUDIO_QUALITY', file_type.name, flush=True)
+                logger.info('QQ_AUDIO_QUALITY %s', file_type.name)
                 break
         if not info.purl:
             raise SkillError('该歌曲未取得可播放资源（result=0）；资源格式不可用。')
