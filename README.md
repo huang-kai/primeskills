@@ -16,7 +16,7 @@
 ```bash
 git clone https://github.com/huang-kai/primeskills.git primebuddy-skills
 python3 ~/.primebuddy/src/primebuddy/tools/build_release.py \
-  --skill-only ./primebuddy-skills/diangetai --output-dir ./dist
+  --skill ./primebuddy-skills/diangetai --output-dir ./dist
 primebuddy skill install ./dist/diangetai-0.3.0.rpk
 ```
 
@@ -34,7 +34,7 @@ primebuddy start
 
 ## 联合开发与打包
 
-为沿用现有测试和默认打包路径，工作区使用下面两个相邻目录：
+联合开发时，工作区使用下面两个相邻目录：
 
 ```bash
 git clone https://github.com/huang-kai/primebuddy.git primebuddy
@@ -42,10 +42,10 @@ git clone https://github.com/huang-kai/primeskills.git primebuddy-skills
 
 cd primebuddy
 bash scripts/test.sh
-python3 src/primebuddy/tools/build_release.py
+python3 src/primebuddy/tools/build_release.py --framework --skill ../primebuddy-skills/diangetai
 ```
 
-默认在框架 `dist/` 分别生成 `primebuddy-1.0.0.rpk`、`diangetai-0.3.0.rpk`、`yeelight-0.2.0.rpk`；重复生成同版本包时加 `--overwrite`。`--skill-only` 可只打包一个技能，`--output-dir` 指定输出目录。
+上面的命令在框架 `dist/` 生成 `primebuddy-1.0.0.rpk` 和 `diangetai-0.3.0.rpk`，框架包内也附带同一份点歌台包。不带参数时只显示使用方法；`--framework` 单独使用时只打框架，`--skill 目录` 单独使用时只打指定技能。每个 `--skill` 只接受一个技能源码目录，多个技能重复指定；与 `--framework` 同用时全部放入框架包。不会自动扫描相邻技能集合，也不会默认带入易来。已有 RPK 直接安装或发布，无需重新打包。修改源码后重打同版本包时加 `--overwrite`，`--output-dir` 指定输出目录。
 
 `primeskills` 是 GitHub 仓库名，`primebuddy-skills` 是上述工作区目录名。每个技能可以独立修改和打包；开发步骤见 [框架 README](https://github.com/huang-kai/primebuddy#开发一个-skill)。测试使用模拟业务接口，不要求机器人或真实账号；框架的 SDK 夹具测试在缺少厂商 SDK 时会明确跳过。
 

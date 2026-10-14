@@ -8,7 +8,7 @@
 
 ```bash
 git clone https://github.com/huang-kai/primeskills.git primebuddy-skills
-python3 ~/.primebuddy/src/primebuddy/tools/build_release.py --skill-only ./primebuddy-skills/diangetai --output-dir ./dist
+python3 ~/.primebuddy/src/primebuddy/tools/build_release.py --skill ./primebuddy-skills/diangetai --output-dir ./dist
 ```
 
 ```bash
@@ -19,7 +19,7 @@ primebuddy skill install ./dist/diangetai-0.3.0.rpk --replace
 primebuddy skill configure diangetai
 ```
 
-框架支持 ZIP 和根目录包含清单的单技能 Git 仓库；本技能位于多技能仓库中，使用上面的 ZIP 安装方式。安装与重新配置调用相同的技能向导：
+框架支持 RPK、ZIP 和根目录包含 SKILL.md 的单技能 Git 仓库；本技能位于多技能仓库中，使用上面的 RPK 安装方式。安装与重新配置调用相同的技能向导：
 
 1. 有效 QQ 登录直接复用；否则由技能自己的 `src/configuration/qr.py` 展示登录二维码，并向服务端确认登录成功。图片权限为600，终端过窄或渲染失败时显示私有图片路径；成功、失败或取消都会清理图片。
 2. 填写每首播放的整数秒数：`1～600`，`0` 表示整首。首次预填60，重新配置预填已保存的数值。歌曲先自然结束时不会补足时长。
@@ -27,7 +27,7 @@ primebuddy skill configure diangetai
 
 修改后重新启动 PrimeBuddy 语音会话生效。旧配置没有新增字段时，仍整首播放且不启用联动；不会因升级自动跳舞。模型可读取当前时长和开关，但不能自行更改配置或选择其他运动。
 
-PrimeBuddy 1.0.0 使用 `primebuddy start` 启动，并随包提供点歌台0.3.0。框架向导会选中较新的随包技能供一起更新，已保存且有效的 QQ 登录态继续复用。点歌台向导只依赖通用 UI 控件，不调用 `ui.qr()`。
+PrimeBuddy 1.0.0 使用 `primebuddy start` 启动。打包时指定 `--framework --skill 点歌台源码目录` 才会附带点歌台，框架向导会选中较新的随包技能供一起更新，已保存且有效的 QQ 登录态继续复用。点歌台向导只依赖通用 UI 控件，不调用 `ui.qr()`。
 
 配置位于 `PRIMEBUDDY_HOME/cfg/skills/diangetai/config.yaml`，包含 `play_seconds` 和 `music_effects`。可直接修改 YAML，退出并重新启动平台后生效；`play_seconds: 0` 表示整首，`music_effects: false` 关闭联动。登录态仍在 `PRIMEBUDDY_HOME/data/diangetai/credential.json`，升级与改时长不会覆盖登录态。QQ 账号须有对应歌曲的播放权限；不绕过权限或将试听当整曲。
 
@@ -50,7 +50,7 @@ PrimeBuddy 1.0.0 使用 `primebuddy start` 启动，并随包提供点歌台0.3.
 根目录 `requirements.txt` 的依赖为 `qqmusic-api-python==0.7.3` 和 `Pillow==11.3.0`，由框架装进技能私有依赖目录。将框架克隆到 `primebuddy/`、本仓库克隆到相邻的 `primebuddy-skills/` 后，从它们的父目录执行：
 
 ```bash
-python3 primebuddy/src/primebuddy/tools/build_release.py --skill-only primebuddy-skills/diangetai --output-dir /tmp/releases
+python3 primebuddy/src/primebuddy/tools/build_release.py --skill primebuddy-skills/diangetai --output-dir /tmp/releases
 PYTHONPATH=primebuddy/src python3 -m unittest discover -s primebuddy-skills/diangetai/tests -v
 ```
 
