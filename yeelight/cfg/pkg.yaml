@@ -4,23 +4,3 @@ sdk_version: v1.0.0
 package_name: yeelight
 author: PrimeBuddy
 description: 通过本地 stdio MCP 打开或关闭灯具、房间或全屋灯光。
-primebuddy:
-  entrypoint: src/skill.py
-  actions:
-    set_power:
-      parameters:
-        power:
-          type: boolean
-        scope:
-          type: string
-          enum:
-          - device
-          - room
-          - home
-        room:
-          type: string
-        device:
-          type: string
-      resources:
-      - yeelight.home
-  setup: src/setup.py

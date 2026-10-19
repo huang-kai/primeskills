@@ -1,127 +1,113 @@
 # 点歌台 diangetai
 
-点歌台让启元 T1 通过语音播放 QQ 音乐。你可以指定歌名或歌手，设置每首歌的播放时长，也可以选择播放时联动机器人动作、表情和灯光。
+点歌台支持启元 T1/Q1，可独立播放 QQ 音乐，也可由语音助手调用。指定歌手或歌名即可点歌，播放时长和可选舞蹈、表情、灯光联动使用技能自己的配置。
 
-当前版本为 **0.3.0**，配合 **PrimeBuddy 1.0.0** 使用。框架负责语音识别、任务安排和音频播放；本技能负责登录 QQ 音乐、选歌、播放设置及联动。
+当前包版本 **0.3.0**。业务程序不导入 PrimeBuddy，也不要求宿主传入 Context 或播放器。原厂 SDK、歌曲转码、播放生命周期与清理由技能自己管理。
 
-## 安装与配置
+## 独立安装与配置
 
-先在 T1 业务板 SoC 1 安装并配置 PrimeBuddy，加载原厂 ROS 2 环境。QQ 音乐登录和歌曲播放需要网络连接。
+需要 Python 3.10 或更新版本、目标机器人原厂 ROS 2 环境、原厂消息包、GStreamer 音频解码环境和可用网络。Python 依赖见 `requirements.txt`；`rclpy`、`aimdk_msgs` 使用机器人已有环境，不替换原厂消息包。
 
-拿到本技能的 RPK 后，执行：
-
-```bash
-primebuddy skill install ./diangetai-0.3.0.rpk
-```
-
-也可以直接安装源码目录：
+在技能目录安装依赖并加载机器人环境后：
 
 ```bash
-git clone https://github.com/huang-kai/primeskills.git primebuddy-skills
-primebuddy skill install ./primebuddy-skills/diangetai
+python3 -m pip install -r requirements.txt
+python3 main.py --check
+python3 main.py configure
 ```
 
-安装向导会依次完成：
+配置会复用有效 QQ 登录态，否则显示二维码，扫码后向服务器核实登录；随后设置 `0～600` 秒的播放时限（`0` 表示整首）及联动开关。配置过程不执行动作。
 
-1. **登录 QQ 音乐。** 有效的登录态会直接复用；没有有效登录时，显示二维码，扫码并完成授权。
-2. **设置播放时长。** 填写 `0～600` 的整数秒，`0` 表示整首播放。首次向导建议 60 秒。
-3. **选择音乐联动。** 仅听歌时请选择关闭；开启后，点歌可能让机器人起身或跳舞，请确保周围空旷且可随时急停。配置向导本身不执行动作。
+联动开启后点歌可能让机器人起身或跳舞，操作前须确认现场空旷、姿态合适且可急停。只听歌时关闭联动。Q1 舞蹈的执行、恢复和打断兼容仍未完成完整实机验收。
 
-以后修改时长或联动开关，重新运行：
+## 命令
+
+以下命令在技能目录运行，公共路径参数放在子命令前：
 
 ```bash
-primebuddy skill configure diangetai
+python3 main.py context
+python3 main.py check-play --artist 周杰伦
+python3 main.py play --artist 周杰伦 --song 晴天
+python3 main.py play --song 小星星 --seconds 30
+python3 main.py play --song 小星星 --simulate
+python3 main.py status
 ```
 
-配置完成后，重新启动语音会话生效。
+- `context`：读取保存的播放时长、联动开关和机型适配说明，不接管麦克风或查询 QQ 账号秘密。
+- `check-play`：检查歌手/歌名、播放设置及待恢复记录，不取流、不播放、不执行动作。
+- `play`：歌手、歌名至少填一个。`--seconds` 覆盖本次时长，不修改保存配置；`--simulate` 不连接机器人或 QQ。命令沿用保存的联动开关，开启时可能产生动作；已有 `--effects` 仅供操作者明确要求本次启用联动。
+- `status`：检查当前进程锁和恢复记录，不调用机器人；`resources_released: true` 才表示没有本技能已知的未确认操作。
+- `recover`：在没有点歌进程持锁时，尝试停止恢复记录中的自有媒体 trace，并等待原厂终态。它不自动执行动作、表情或灯光恢复。
 
-## 怎么使用
+业务命令通过 stdout 返回 JSON，stderr 输出诊断；`status=success` 且退出码为 `0` 表示该命令完成，失败和取消返回非零。点歌结果还包含 `resources_released`，它与歌曲是否播放成功是两件事。状态未确认时保留记录，不能据退出码或进程消失声称机器人已停止。
+
+## 配置与运行目录
 
 ```bash
-primebuddy start
+python3 main.py --config /path/config.yaml \
+  --data-dir /path/data --runtime-dir /path/runtime play --artist 周杰伦
 ```
 
-用机器人的原厂唤醒词唤醒后，可以说：
+| 参数 | 对应环境变量 | 内容 |
+| --- | --- | --- |
+| `--config` | `DIANGETAI_CONFIG` | 私有 YAML 播放设置，文件权限须为 `600` |
+| `--data-dir` | `DIANGETAI_DATA` | QQ 登录态与私有数据 |
+| `--runtime-dir` | `DIANGETAI_RUNTIME` | 本技能最终运行目录，存放进程锁和恢复记录 |
 
-- “播放周杰伦的歌。”
-- “播放歌曲《晴天》。”
-- “播放周杰伦的《晴天》。”
+默认数据目录保留 `~/.primebuddy/data/diangetai`，以复用已有登录；该路径名称不代表需要安装框架。运行目录默认是数据目录下的 `runtime/`。配置优先使用显式路径或技能环境变量，否则复用数据目录已有 `config.yaml` 或旧 `~/.primebuddy/cfg/skills/diangetai/config.yaml`。旧 `PRIMEBUDDY_*` 环境变量仅用于已有部署的数据兼容。
 
-名称无法确定是歌手还是歌名时，机器人会询问。播放时长和联动开关使用终端中保存的配置，语音点歌不会修改这些设置。
-
-播放时长从歌曲实际开始播放时计算，搜索和缓冲时间不计入。如果歌曲提前结束，播放也随之结束。QQ 账号需要有对应歌曲的播放权限；搜索无结果或音源不可用时，会返回实际原因。
-
-首次使用以及空闲超时后需要重新唤醒。歌曲播完后，框架继续处理后续语音请求。
-
-## 音乐联动
-
-开启联动时，机器人会根据当前姿态处理：
-
-- 已稳定站立：保持当前双足或四足形态，执行对应舞蹈、表情和灯光。
-- 四足趴卧：歌曲缓冲成功后，先起身到四足站立，确认站稳后再播放。
-- 姿态不支持、正在移动、跌倒或状态无法确认：拒绝开始联动。
-
-联动结束后会停止本轮舞蹈、清理表情并恢复灯光。从趴卧起身的机器人会保持站立，不会自动趴回去，也不会在双足和四足之间转换。
-
-如果起身或恢复状态无法确认，技能会保留恢复记录并拒绝下一次联动。应先核对机器人状态和日志，不要删除记录来绕过检查。
-
-## 配置与数据
-
-默认位置如下；自定义框架安装目录时，相应替换路径：
-
-| 内容 | 位置 |
-| --- | --- |
-| 技能代码和依赖 | `~/.primebuddy/skills/diangetai/` |
-| 播放设置 | `~/.primebuddy/cfg/skills/diangetai/config.yaml` |
-| QQ 音乐登录态 | `~/.primebuddy/data/diangetai/credential.json` |
-
-例如，先测试 10 秒播放并关闭联动，可以保存：
+配置示例：
 
 ```yaml
-play_seconds: 10
+play_seconds: 30
 music_effects: false
 ```
 
-更新已有技能时使用：
+T1/Q1 型号从原厂身份信息识别，不限定部署在哪块板。原厂媒体服务主机用 `PRIMEBOT_AUDIO_HOST=local` 或 `user@host` 指定；缺省采用已确认的 SoC 0 服务拓扑。本地不走 SSH；跨机播放需要先准备服务端音频文件，不能假设文件系统共享。
+
+## 播放、续听与取消
+
+媒体通过原厂 Agent 的 `PlayMediaFile` 播放，按本次唯一 trace 等待真实 PLAYING/END。最长时长先编码进音频文件，搜索和缓冲时间不计入播放时长；歌曲提前结束时随之结束。QQ 搜索成功不代表取得音源，取流错误不能单凭错误码判断 VIP 原因，不绕过权限。
+
+独立命令不切换 Agent 模式、不接管麦克风。原厂会话须已被唤醒，音乐不会从 IDLE 主动唤醒。语音宿主应等待音乐与清理结束，再安排播报和收音；不要改用直接 Pulse/TCP 或 `PlayAudioFile` 后宣称具有相同续听生命周期。当前不保证播放中再次唤醒会取消歌曲；跨轮“再来一首”的点歌上下文仍需宿主修复。
+
+SIGINT、SIGTERM、SIGHUP 会触发协作取消，停止本次 trace 并完成已开启的联动清理。强杀不会运行 `finally`；媒体请求提交前会保存恢复记录，只有收到本次 END 或目标消息明确声明的 STOP/STOPPED 才清除；ERROR 等失败反馈不能作为已停止的证据。恢复使用与原任务相同的运行目录：
 
 ```bash
-primebuddy skill install ./diangetai-0.3.0.rpk --replace
+python3 main.py --runtime-dir /path/runtime status
+python3 main.py --runtime-dir /path/runtime recover
 ```
 
-更新和重新配置会复用有效登录态。临时不用时执行 `primebuddy skill disable diangetai`；删除代码及账号数据的步骤见 [管理技能](https://github.com/huang-kai/primeskills#管理技能)。
+停止请求提交前也会保存标记；新 `recover` 进程读到已请求停止时只等待确认，不重复发送未知结果的停止请求。如果停止未确认，记录保留；不要据超时或删除记录判断停止成功。若存在联动恢复记录，`recover` 只报告需要现场核对，不自动重放动作或删除记录。原厂确认反馈已错过等情况也可能无法自动确认，需要结合现场和原厂状态处理。旧 `runtime/diangetai/` 子目录中的恢复记录也会阻止误报资源已释放。
 
-## 开发与打包
+## 音乐联动
 
-代码按用途分为：
+- T1 保持已稳定的双足/四足模式，分别选择对应原厂舞蹈和表情。四足趴卧只在歌曲缓冲完成后准备起身，站稳才播放；不自动进行形态切换、坐下、趴下或跌倒恢复。
+- Q1 只接受稳定 `BIPED_WALK_RUN(1002)`，使用登记的 `DANCE_LOCKING`、`MIMIC(1003)` 与对应表情；不要求 T1 形态字段，不自动起身或切换形态。不能承诺随时打断或已稳定通过实机运动验收。
+- 正常退出时恢复本轮入口模式、表情和自身控制的灯光；从趴卧起身后保持站立。恢复未确认时拒绝再次联动，保留记录。
 
-| 位置 | 职责 |
-| --- | --- |
-| `SKILL.md`、`cfg/pkg.yaml` | 技能说明、包信息和业务入口声明 |
-| `src/skill.py` | `play` 入口和业务流程 |
-| `src/setup.py`、`src/configuration/` | 登录、二维码和播放设置向导 |
-| `src/music/` | QQ 音乐登录态、搜索和音源获取 |
-| `src/effects/` | 动作、表情和灯光联动 |
-| `tests/` | 配置、播放及联动恢复的主要测试 |
+## 接入 PrimeBuddy
 
-Python 依赖以根目录 `requirements.txt` 为准，安装器会放到技能自己的 `_deps/`。`rclpy` 和 `aimdk_msgs` 使用机器人已有环境。
-
-框架与技能仓库相邻时，从技能仓库根目录执行：
+配合包含 CLI 宿主适配的 PrimeBuddy 使用：
 
 ```bash
-python3 diangetai/main.py --check
-PYTHONPATH=../primebuddy/src python3 -m unittest discover -s diangetai/tests -v
+primebuddy skill install ./diangetai-0.3.0.rpk
+primebuddy skill configure diangetai
 ```
 
-`--check` 校验本地技能说明和入口文件。测试使用模拟接口，不登录真实账号或控制机器人。
+宿主适配定义在 Buddy 自己的配置中，将参数、资源、期限、预检和恢复命令映射到本技能已有 CLI。技能的 `cfg/pkg.yaml` 只保留包信息，不声明 Buddy Python 入口。详细分工见 [宿主接入说明](references/buddy.md)。
 
-从框架源码目录打包：
+## 开发与验证
+
+`src/skill.py` 是普通业务流程，`src/music/` 负责 QQ，`src/robot/` 负责原厂媒体与音频准备，`src/effects/` 负责 T1/Q1 联动，`src/recovery.py` 负责操作记录。业务代码不要求实现宿主函数。
 
 ```bash
-python3 src/primebuddy/tools/build_release.py --skill ../primebuddy-skills/diangetai
+python3 main.py --check
+python3 -m unittest discover -s tests -v
 ```
 
-输出为 `dist/diangetai-0.3.0.rpk`，其中包含 README 和 LICENSE。发布新版本前修改 `cfg/pkg.yaml` 的 `version`；私有配置和登录数据保存在框架的数据目录中。贡献步骤见 [仓库说明](https://github.com/huang-kai/primeskills#参与贡献)。
+每个播放进程在提交 RPC 前等待媒体状态订阅匹配；Humble 缺少 Python 匹配计数接口时使用同版公开 rcl 只读 API，不能取得匹配证据时不播放。测试使用模拟接口，不登录账号或控制机器人；新子进程的 DDS 匹配与取消终态仍需实机回归，模拟通过不能当作实机验收。由框架源码目录运行 `python3 src/primebuddy/tools/build_release.py --skill ../primebuddy-skills/diangetai` 可打 RPK；包内携带 README 和 LICENSE，不含私有配置与登录态。
 
 ## 开源协议
 
-本技能采用 [MIT 协议](LICENSE)。独立分发时请保留 LICENSE；第三方依赖遵循各自的协议。
+采用 [MIT 协议](LICENSE)。第三方依赖和原厂 SDK 遵循各自协议。

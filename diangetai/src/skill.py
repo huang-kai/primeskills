@@ -2,88 +2,119 @@
 import logging
 import asyncio
 import time
+from pathlib import Path
 
-from primebuddy.voice.audio import AudioError
+from .support import AudioError, SetupError
 from .configuration.playback import playback_seconds, effects_enabled
 
 logger = logging.getLogger('primebuddy.skills.diangetai.skill')
 
 
-def validate(action, args):
+def validate(args):
     if not (args['artist'].strip() or args['song'].strip()):
-        raise ValueError('请提供歌手或歌名')
+        raise SetupError('请提供歌手或歌名')
 
 
-def preflight(action, args, context):
-    config = context.config_for('diangetai')
-    playback_seconds(config)
-    effects_enabled(config)
-    if not context.simulate and (context.runtime is None or context.audio is None):
-        raise ValueError('点歌需要框架提供音频服务，请同时更新框架和技能并运行 primebuddy start。')
-
-
-def planning_context(context):
-    config = context.config_for('diangetai')
+def settings(config):
     return {'status': 'success', 'play_seconds': playback_seconds(config),
-            'music_effects': effects_enabled(config), 'posture': '四足趴卧先起身；已站立则保持双足或四足形态'}
+            'music_effects': effects_enabled(config), 'posture': '按设备和实时姿态适配；Q1 仅在稳定走跑模式跳舞，T1 保持双足或四足形态'}
 
 
-def describe(action, args):
-    return '正在准备播放' + (args['artist'] + '的' if args['artist'] else '') + (args['song'] or '歌曲')
+def check_play(artist, song, *, config, runtime, simulate=False):
+    validate({'artist': artist, 'song': song})
+    settings(config)
+    if not simulate and runtime is None:
+        raise SetupError('点歌需要可写的运行目录。')
+    return {'status': 'success', 'message': '点歌参数和播放设置已校验，未执行播放。'}
 
 
-def play(context, artist, song):
+def play(artist, song, *, config, runtime, check=lambda: None, simulate=False):
     args = {'artist': artist, 'song': song}
-    validate('play', args)
-    config = context.config_for('diangetai')
+    check_play(artist, song, config=config, runtime=runtime, simulate=simulate)
     limit, enabled = playback_seconds(config), effects_enabled(config)
-    if context.simulate:
+    if simulate:
         for _ in range(15):
-            context.checkpoint()
+            check()
             time.sleep(.02)
         return {'status': 'success', 'message': '模拟：歌曲播放完毕，播放器已清理。'}
-    from .music.qqmusic_client import select_song, load_credential, SkillError
-    from .effects.session import effects_session
+    from .music.qqmusic_client import select_song, load_credential, SkillError, SkillNetworkError
     if load_credential() is None:
         return {'status': 'auth_required', 'message': '请先完成 QQ 音乐登录。'}
     async def select():
-        return await asyncio.wait_for(select_song(args), timeout=60)
+        task = asyncio.create_task(select_song(args))
+        try:
+            deadline = time.monotonic() + 60
+            while not task.done():
+                check()
+                if time.monotonic() >= deadline:
+                    raise TimeoutError()
+                await asyncio.sleep(.1)
+            return task.result()
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
     stage = '选歌与取流'
     try:
         song, url = asyncio.run(select())
-        context.checkpoint()
+        check()
         stage = '联动预检与播放' if enabled else '歌曲播放'
-        with effects_session(context, enabled) as effects:
-            message = play_song(context, song, url, limit, effects)
-    except (AudioError, SkillError) as error:
+        robot = get_robot(runtime)
+        with robot.session(check), robot.effects(enabled) as effects:
+            message = play_song(check, robot, song, url, limit, effects)
+    except (SkillNetworkError, TimeoutError) as error:
+        logger.error('DIANGETAI_ERROR %s %s', stage, type(error).__name__)
+        if isinstance(error, SkillNetworkError) or stage == '选歌与取流':
+            return {'status': 'failed', 'message': '网络连接出现了问题，请重新连接网络。',
+                    'error_code': 'network_unavailable'}
+        return {'status': 'failed', 'message': stage + '超时，请重试。'}
+    except (SetupError, SkillError) as error:
         # 选歌也在安全错误边界内；搜索无结果不能被误报成未知执行失败。
         logger.error('DIANGETAI_ERROR %s %s', stage, type(error).__name__)
         return {'status': 'failed', 'message': str(error)}
-    except TimeoutError:
-        return {'status': 'failed', 'message': stage + '超时，请检查网络后重试。'}
     except Exception as error:
-        # 第三方异常可能含签名 URL，只记本地阶段和类型，正文仍交框架隐藏。
+        # 第三方异常可能含签名 URL；只记录阶段和类型，由 CLI 隐藏异常正文。
         logger.error('DIANGETAI_ERROR %s %s', stage, type(error).__name__)
         raise
     return {'status': 'success', 'message': message}
 
 
-def play_song(context, song, url, limit, effects):
+def play_song(check, robot, song, url, limit, effects):
     def before_play():
         if effects:
-            effects.robot.spin(0)
-            effects.prepare_stand()
-            context.checkpoint()
-            effects.require_stand()
+            effects.prepare()
+            check()
+            effects.ready()
 
     def tick():
         if effects:
-            effects.robot.spin(0)
             effects.tick()
 
-    # 选曲与联动属于技能；解码、计时、原厂播放与清理全部由框架完成。
-    result = context.audio.play(url, max_seconds=limit, expected_seconds=song.interval,
+    # 独立 skill 自己管理原厂播放，真实 END 与有界清理完成后才向宿主返回。
+    result = robot.play_music(url, max_seconds=limit, expected_seconds=song.interval,
                                 before_play=before_play,
-                                on_started=effects.begin_music if effects else None,
+                                on_started=effects.begin if effects else None,
                                 on_tick=tick if effects else None)
     return f'已播放 {limit} 秒，歌曲已停止。' if result['limited'] else '歌曲播放完毕。'
+
+
+_robot = None
+
+
+def get_robot(runtime):
+    global _robot
+    if _robot is None:
+        from .robot.facade import RobotFacade
+        _robot = RobotFacade(runtime)
+    elif _robot.runtime != Path(runtime):
+        raise AudioError('点歌运行目录发生变化，请关闭旧会话后重试。')
+    return _robot
+
+
+def shutdown():
+    global _robot
+    if _robot is not None:
+        try:
+            _robot.close()
+        finally:
+            _robot = None

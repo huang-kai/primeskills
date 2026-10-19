@@ -3,19 +3,4 @@ version: 0.3.0
 sdk_version: v1.0.0
 package_name: diangetai
 author: PrimeBuddy
-description: 按配置时长播放歌曲，可联动当前双足/四足形态的舞蹈、表情和灯光。
-primebuddy:
-  entrypoint: src/skill.py
-  actions:
-    play:
-      parameters:
-        artist:
-          type: string
-        song:
-          type: string
-      resources:
-      - speaker.music
-      - robot.motion
-      - robot.expression
-      - robot.lights
-  setup: src/setup.py
+description: 按配置时长播放歌曲，可联动T1/Q1 当前姿态的舞蹈、表情和灯光。

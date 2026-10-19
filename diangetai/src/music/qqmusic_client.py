@@ -1,16 +1,35 @@
 """点歌台自己的 QQ 账号、检索与取流逻辑；语音和音频互斥由框架管理。"""
 import asyncio
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+import fcntl
 import time
 import json
 import logging
 import urllib.parse
 
-from primebuddy.config.storage import read_json, write_json, skill_data
-from primebuddy.core.timing import measure
+from ..support import read_json, write_json, skill_data
+from ..support import measure
 
 logger = logging.getLogger('primebuddy.skills.diangetai.qqmusic_client')
+
+
+def device_path(data=None):
+    directory = data or skill_data('diangetai')
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory.chmod(0o700)
+    path = directory / 'device.json'
+    with (directory / 'device.lock').open('a') as lock:
+        (directory / 'device.lock').chmod(0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if path.exists():
+            path.chmod(0o600)
+        else:
+            # 0.7.3 默认只在内存生成指纹；先私有地保存完整结构，
+            # 后续 SDK 更新会话时原地写入，保留文件的 600 权限。
+            from qqmusic_api.utils.device import Device
+            write_json(path, asdict(Device()))
+    return str(path)
 
 
 def load_credential(data=None):
@@ -28,11 +47,15 @@ async def check_login(data=None):
     credential = load_credential(data)
     if credential is None:
         return False
-    async with Client(credential=credential) as client:
+    async with Client(credential=credential, device_path=device_path(data)) as client:
         return not await asyncio.wait_for(client.login.check_expired(), 30)
 
 
 class SkillError(Exception):
+    pass
+
+
+class SkillNetworkError(SkillError):
     pass
 
 
@@ -54,7 +77,8 @@ def matching_songs(songs, intent: SearchQuery):
 
 async def search(intent, client=None):
     from qqmusic_api import Client
-    async with (nullcontext(client) if client is not None else Client(credential=load_credential())) as client:
+    async with (nullcontext(client) if client is not None else
+                Client(credential=load_credential(), device_path=device_path())) as client:
         with measure('QQ搜索', '正在搜索 QQ 音乐…'):
             result = await asyncio.wait_for(client.search.search_by_type(keyword=intent.keyword, num=10, highlight=False), 30)
         songs = matching_songs(result.song, intent)
@@ -80,14 +104,15 @@ def validate_url(url):
 
 async def select_song(intent):
     from qqmusic_api import Client
-    from qqmusic_api.core.exceptions import CredentialExpiredError
+    from qqmusic_api.core.exceptions import CredentialExpiredError, NetworkError
+    from niquests.exceptions import ConnectionError as TransportConnectionError, Timeout
     credential = load_credential()
     if credential is None:
-        raise SkillError('获取歌曲资源前请先运行 primebuddy skill configure diangetai 完成登录。')
+        raise SkillError('获取歌曲资源前请先运行 python3 main.py configure 完成登录。')
     # 搜索和资源地址属于同一次点歌，复用连接池，减少重复DNS/TLS建连。
     # 客户端仍限定在当前事件循环内，不跨 asyncio.run 复用已关闭的会话。
     with measure('QQ客户端创建'):
-        context = Client(credential=credential)
+        context = Client(credential=credential, device_path=device_path())
     # 保持正常关闭语义，但单独记录它，避免把收尾误记成搜索耗时。
     close_started = None
     try:
@@ -107,7 +132,13 @@ async def select_song(intent):
                 close_started = time.monotonic()
     except CredentialExpiredError:
         # 搜索成功不代表登录仍有效，取流也可能被服务端拒绝。
-        raise SkillError('QQ 音乐登录已过期，请运行 primebuddy skill configure diangetai 重新扫码登录。') from None
+        raise SkillError('QQ 音乐登录已过期，请运行 python3 main.py configure 重新扫码登录。') from None
+    except (NetworkError, TransportConnectionError, Timeout, TimeoutError) as error:
+        # 只转换 SDK/传输层网络异常；HTTP 状态、鉴权和业务拒绝保留原有处理。
+        if (isinstance(error, NetworkError) and error.__cause__ is not None
+                and not isinstance(error.__cause__, (TransportConnectionError, Timeout, TimeoutError))):
+            raise
+        raise SkillNetworkError('网络连接出现了问题，请重新连接网络。') from None
     finally:
         if close_started is not None:
             logger.info('STAGE_TIME %s', json.dumps({'stage': 'QQ连接关闭',
@@ -120,8 +151,8 @@ async def song_url(song, client=None):
     if client is None:
         credential = load_credential()
         if credential is None:
-            raise SkillError('获取歌曲资源前请先运行 primebuddy skill configure diangetai 完成登录。')
-        context = Client(credential=credential)
+            raise SkillError('获取歌曲资源前请先运行 python3 main.py configure 完成登录。')
+        context = Client(credential=credential, device_path=device_path())
     else:
         context = nullcontext(client)
     async with context as client:

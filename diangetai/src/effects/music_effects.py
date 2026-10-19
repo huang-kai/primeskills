@@ -4,7 +4,7 @@ import logging
 import random
 import time
 
-from primebuddy.integrations.t1.robot_audio import AudioError
+from ..support import AudioError
 
 logger = logging.getLogger('primebuddy.skills.diangetai.music_effects')
 
@@ -47,17 +47,23 @@ class DanceController:
         if candidate is None or candidate.intr_info.intr_type.value != 1:
             raise AudioError('未取得可自由打断的 ' + self.motion_name + ' 资源。')
 
+    action_descriptions = {101: 'QUADRUPED_STAND_DEFAULT', 102: 'QUADRUPED_LOCOMOTION_DEFAULT',
+                           201: 'BIPED_STAND_DEFAULT', 300: 'BIPED_LOCOMOTION_WBC'}
+
     def __init__(self, robot):
-        from aimdk_msgs.msg import McCommonState, RGBState
-        from aimdk_msgs.srv import GetMcAction, GetMcMotions, SetMcAction, SetMcMotion, LedStripCommand
+        try:
+            from aimdk_msgs.msg import McCommonState, RGBState
+            from aimdk_msgs.srv import GetMcAction, GetMcMotions, SetMcAction, SetMcMotion, LedStripCommand
+        except ImportError:
+            raise AudioError('目标原厂消息包缺少舞蹈或灯光接口，联动不可用。') from None
         self.robot = robot
         self.types = {t.__name__: t for t in (GetMcAction, GetMcMotions, SetMcAction, SetMcMotion, LedStripCommand)}
         self.clients = {name: robot.node.create_client(t, '/aimdk_5Fmsgs/srv/' + name)
                         for name, t in self.types.items()}
         self.motion_state = self.light_state = None
         self.motion_received_at = self.light_received_at = 0
-        robot.node.create_subscription(McCommonState, '/aima/mc/common/state', self.on_mc, robot.qos)
-        robot.node.create_subscription(RGBState, '/aima/hal/rgb/state', self.on_rgb, robot.qos)
+        self.subscriptions = [robot.node.create_subscription(McCommonState, '/aima/mc/common/state', self.on_mc, robot.qos),
+                              robot.node.create_subscription(RGBState, '/aima/hal/rgb/state', self.on_rgb, robot.qos)]
 
     def on_mc(self, msg):
         self.motion_state, self.motion_received_at = msg, time.monotonic()
@@ -145,8 +151,7 @@ class DanceController:
         req = self.request('SetMcAction')
         req.source = 'sdk_rpc'
         req.command.action.value = self.stand_action
-        req.command.action_desc = {101: 'QUADRUPED_STAND_DEFAULT', 102: 'QUADRUPED_LOCOMOTION_DEFAULT',
-                                   201: 'BIPED_STAND_DEFAULT', 300: 'BIPED_LOCOMOTION_WBC'}[self.stand_action]
+        req.command.action_desc = self.action_descriptions[self.stand_action]
         self.rpc('SetMcAction', req, cleanup)
 
     def start(self):
@@ -228,9 +233,15 @@ class DanceController:
 
 class MusicEffects(DanceController):
     """动作、灯光和喜悦表情跟随歌曲生命周期；时限统一由音乐会话控制。"""
+    happy_ids = HAPPY_EMOTION_IDS
+    reset_emotion_id = EMPTY_EMOTION_ID
+
     def __init__(self, robot, record):
+        try:
+            from aimdk_msgs.srv import PlayEmotion
+        except ImportError:
+            raise AudioError('目标原厂消息包缺少表情接口，联动不可用。') from None
         super().__init__(robot)
-        from aimdk_msgs.srv import PlayEmotion
         self.emotion_client = robot.node.create_client(PlayEmotion, '/aimdk_5Fmsgs/srv/PlayEmotion')
         self.emotion_submitted = False
         self.record = record
@@ -248,7 +259,8 @@ class MusicEffects(DanceController):
             raise AudioError('SDK 表情播放服务不可用。')
         return result
 
-    def prepare_stand(self):
+    def prepare(self):
+        self.robot.spin(0)
         action = self.require_ready()
         self.require_resource()
         if self.require_ready() != action:
@@ -269,6 +281,19 @@ class MusicEffects(DanceController):
         self.record.unlink()
         self.stand_pending = False
 
+    def ready(self):
+        return self.require_stand()
+
+    def dance(self):
+        self.require_stand()
+        self.start()
+
+    def happy(self):
+        emotion_id = random.choice(self.happy_ids)
+        self.emotion_submitted = True
+        self.play_emotion(emotion_id)
+        logger.info('HAPPY_EMOTION_REQUEST_ACCEPTED %s', emotion_id)
+
     def play_emotion(self, emotion_id, cleanup=False):
         from aimdk_msgs.srv import PlayEmotion
         request = PlayEmotion.Request()
@@ -279,24 +304,22 @@ class MusicEffects(DanceController):
         request.loop_count = 0
         self.robot.call(self.emotion_client, request, cancellable=not cleanup)
 
-    def begin_music(self):
+    def begin(self):
         original = self.require_stand()
         # 记录写入成功后才能启动动作；残留记录不能被新会话覆盖。
         with self.record.open('x') as output:
             self.record.chmod(0o600)
             json.dump({'motion': self.motion_name, 'stand_action': self.stand_action, 'original_rgb': original,
-                       'reset_emotion_id': EMPTY_EMOTION_ID}, output)
+                       'reset_emotion_id': self.reset_emotion_id}, output)
         self.original_light_state = original
-        self.start()
+        self.dance()
         # 每首只随机一次；表情循环显示，动作重启和灯光换色不重新抽取。
-        emotion_id = random.choice(HAPPY_EMOTION_IDS)
-        self.emotion_submitted = True  # 请求超时也可能生效，清理时仍需切回空表情。
-        self.play_emotion(emotion_id)
-        logger.info('HAPPY_EMOTION_REQUEST_ACCEPTED %s', emotion_id)
+        self.happy()  # 请求超时也可能生效，清理时仍须复位表情。
         self.next_color_at = self.color_index = 0
         self.next_motion_check_at = time.monotonic() + 1
 
     def tick(self):
+        self.robot.spin(0)
         if self.original_light_state is None:
             return
         if time.monotonic() >= self.next_motion_check_at:
@@ -332,7 +355,7 @@ class MusicEffects(DanceController):
         restorations = [self.restore_stand,
                         lambda: self.restore_light(self.original_light_state, self.last_owned_light_state)]
         if self.emotion_submitted:
-            restorations.append(lambda: self.play_emotion(EMPTY_EMOTION_ID, cleanup=True))
+            restorations.append(lambda: self.play_emotion(self.reset_emotion_id, cleanup=True))
         for restore in restorations:
             try:
                 restore()
@@ -346,3 +369,48 @@ class MusicEffects(DanceController):
         self.emotion_submitted = False
         self.original_light_state = self.last_owned_light_state = None
         logger.info('MUSIC_EFFECTS_RESTORED')
+
+    def close(self):
+        for subscription in self.subscriptions:
+            self.robot.node.destroy_subscription(subscription)
+        for client in [*self.clients.values(), self.emotion_client]:
+            self.robot.node.destroy_client(client)
+
+
+class Q1MusicEffects(MusicEffects):
+    """Q1 人形：仅在稳定的走跑模式跳舞，不推断四足或发送形态切换。"""
+    stand_action = 1002
+    standing_actions = {1002}
+    dance_action = 1003
+    motion_name = 'DANCE_LOCKING'
+    posture_name = '人形'
+    happy_ids = (3003,)
+    reset_emotion_id = 3001
+    action_descriptions = {1002: 'BIPED_WALK_RUN'}
+
+    def select_posture(self, action):
+        if action != self.stand_action:
+            raise AudioError('Q1 舞蹈要求已处于稳定的 BIPED_WALK_RUN(1002)；不自动起身或切换模式。')
+
+    def require_stand(self):
+        self.require_ready()
+        return self.light_state
+
+    def require_ready(self):
+        info = self.action()
+        self.select_posture(info.current_action.value)
+        state = self.motion_state
+        now = time.monotonic()
+        if (info.status.value != ACTION_RUNNING or state is None
+                or now - self.motion_received_at > 2 or now - self.light_received_at > 2
+                or state.is_moving or state.is_fallen):
+            raise AudioError('Q1 姿态未确认稳定或反馈过期，未提交舞蹈。')
+        # Q1 不要求 T1 的 form_state；部署版本提供的额外保护状态仍须核对。
+        for name, field in (('lift_state', 'is_lifted'), ('held_state', 'is_held')):
+            extra = getattr(state, name, None)
+            if extra is not None and getattr(extra, field):
+                raise AudioError('Q1 被提起或抱持，未提交舞蹈。')
+        action = getattr(state, 'action_info', None)
+        if action is not None and action.current_action.value != info.current_action.value:
+            raise AudioError('Q1 动作反馈不一致，未提交舞蹈。')
+        return info.current_action.value

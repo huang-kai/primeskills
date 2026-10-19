@@ -1,12 +1,12 @@
 # PrimeSkills
 
-PrimeSkills 是 [PrimeBuddy](https://github.com/huang-kai/primebuddy) 的技能集合。框架负责听懂请求、安排任务和语音回复，这里的 skill 负责具体业务，例如播放歌曲或控制灯具。
+PrimeSkills 是 [PrimeBuddy](https://github.com/huang-kai/primebuddy) 的技能集合。PrimeBuddy 负责听懂请求、安排任务和自己的语音回复；技能以 `SKILL.md` 说明业务流程，设备程序自行调用 SDK。点歌台和易来均提供独立 CLI，可供终端、Buddy 或其他 Agent 调用。
 
-每个技能都是一个独立目录，可以单独安装、配置和打包。当前两个技能配合 **PrimeBuddy 1.0.0** 使用：
+每个技能都是一个独立目录，可以单独安装、配置和打包。通过语音使用时，需要包含 CLI 宿主适配的 PrimeBuddy；也可直接使用独立命令：
 
 | 技能 | 版本 | 用途 | 使用前需要准备 |
 | --- | --- | --- | --- |
-| [点歌台 diangetai](diangetai/README.md) | 0.3.0 | 播放 QQ 音乐，设置播放时长，可选机器人动作、表情和灯光联动 | T1 业务板环境、QQ 音乐账号 |
+| [点歌台 diangetai](diangetai/README.md) | 0.3.0 | 播放 QQ 音乐，设置播放时长，可选机器人动作、表情和灯光联动 | T1/Q1 原厂 ROS 环境、QQ 音乐账号 |
 | [易来 yeelight](yeelight/README.md) | 0.2.0 | 打开或关闭指定灯具、房间或全屋灯光 | 已安装并登录的 `yeelight-home` 工具 |
 
 ## 安装技能
@@ -28,7 +28,7 @@ primebuddy skill install ./primebuddy-skills/diangetai
 
 安装易来时，将目录换成 `./primebuddy-skills/yeelight`。本仓库根目录包含多个技能，安装时应传入其中的一个技能目录。
 
-安装器会复制文件、安装该技能声明的 Python 依赖，并打开技能自己的配置向导。完成配置后，运行 `primebuddy start`，唤醒机器人即可使用。
+安装器会复制文件并安装声明的 Python 依赖。当前两个技能的配置向导由 Buddy 侧适配调用各自独立的 `configure` 命令；没有该适配时，进入技能目录手动配置。配置后运行 `primebuddy start`，唤醒机器人即可使用。
 
 详细的配置和使用方法见各技能 README。点歌台开启动作联动后可能产生身体运动，请先阅读其中的联动说明。
 
@@ -59,26 +59,19 @@ primebuddy skill install ./primebuddy-skills/diangetai
 
 ## 代码如何组织
 
-每个技能使用相同的基本结构：
+新技能可以从 [通用模板](templates/my-skill/SKILL.md) 开始，编写方法见 [Agent Skill 编写指南](templates/README.md)。采用 Codex、Claude Code、OpenClaw 熟悉的目录习惯：
 
 ```text
 <skill>/
-├── SKILL.md              给框架和大模型读取的技能说明
-├── README.md             给使用者和开发者阅读的说明
-├── LICENSE               独立分发时携带的 MIT 协议
-├── main.py               本地校验和配置入口
-├── requirements.txt      该技能的 Python 依赖
-├── cfg/
-│   ├── pkg.yaml          包信息、版本和框架调用入口
-│   └── config.yaml       公开配置默认值
-├── src/                  业务代码
-├── resource/             静态资源，按需添加
-└── tests/                主要功能测试
+├── SKILL.md              必需：发现摘要和执行说明
+├── scripts/              可选：普通命令行程序
+├── references/           可选：按需读取的接口、设备或特殊流程资料
+└── assets/               可选：任务使用的模板与资源
 ```
 
-框架先读取 `SKILL.md` 的名称和简介，需要时再读取完整说明。这里的两个技能通过 `cfg/pkg.yaml` 声明业务函数：点歌台的 `play` 负责播放，易来的 `set_power` 负责开关灯。模型选择任务，技能执行操作并返回真实结果。
+框架先读取 `name` 和 `description`，选中后读取完整正文，再按需读取参考文件。摘要保持简短，正文写清适用场景、前置条件、操作步骤、示例、结果校验和失败处理。模板中的标题是写作建议，不是固定协议。
 
-普通新技能可以从一个 `SKILL.md` 开始，不必照搬这两个设备技能的全部结构。完整教程见 [开发一个 skill](https://github.com/huang-kai/primebuddy#开发一个-skill)。
+现有点歌台和易来还使用 `main.py`、`src/`、`cfg/`、`tests/` 等目录，`cfg/pkg.yaml` 只保存包信息。普通技能无需实现 Buddy 专属函数；需要代码时可提供独立 CLI。宿主需要具名工具、资源锁或恢复检查时，在自己的可选适配配置中映射现有命令。完整教程见 [开发一个 skill](https://github.com/huang-kai/primebuddy#开发一个-skill)。
 
 ## 开发与测试
 
@@ -105,7 +98,7 @@ python3 diangetai/main.py --check
 python3 yeelight/main.py --check
 ```
 
-新增技能时，先写清触发条件和使用步骤，再实现业务代码。依赖、配置、资源和测试按实际需要添加。技能名称保持唯一，`cfg/pkg.yaml` 的 `package_name` 应与 `SKILL.md` 的 `name` 一致。
+新增技能时，先写清触发条件和使用步骤，再实现业务代码。普通命令可直接在终端运行；当前 Buddy 通用执行器通过技能内现有 Python、Bash 或 JavaScript 脚本调用，不执行模型生成的 shell 字符串。依赖、配置、资源和测试按实际需要添加。技能名称保持唯一，`cfg/pkg.yaml` 的 `package_name` 应与 `SKILL.md` 的 `name` 一致。
 
 ## 打包发布
 

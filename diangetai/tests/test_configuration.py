@@ -2,8 +2,8 @@
 from pathlib import Path
 import unittest
 from unittest.mock import Mock
-from primebuddy.config.storage import SetupError
-from primebuddy.skills.manager import load_entry
+SetupError = ValueError
+from helpers import load_entry
 import asyncio
 import tempfile
 from types import ModuleType, SimpleNamespace
@@ -13,10 +13,6 @@ from unittest.mock import Mock, patch
 from contextlib import redirect_stdout
 import io
 import os
-import shutil
-from primebuddy.skills import manager as skill_manager
-from primebuddy.cli.commands import main
-from primebuddy.config.storage import skill_config, write_config
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -100,8 +96,9 @@ class LoginTests(unittest.TestCase):
                                   wait_qrcode_login=AsyncMock(return_value=credential, side_effect=error))
         api = ModuleType('qqmusic_api')
         client = SimpleNamespace(login=SimpleNamespace(check_expired=AsyncMock(return_value=expired)))
+        clients = []
         class Client:
-            def __init__(self, **kwargs): pass
+            def __init__(self, **kwargs): clients.append(kwargs)
             async def __aenter__(self): return client
             async def __aexit__(self, *args): pass
         api.Client = Client
@@ -111,7 +108,8 @@ class LoginTests(unittest.TestCase):
         login_utils.QRCodeLoginSession = lambda *args, **kwargs: session
         with patch.dict('sys.modules', {'qqmusic_api': api, 'qqmusic_api.models.login': models,
                                        'qqmusic_api.modules.login_utils': login_utils}),\
-                patch(self.module.__name__ + '.configuration.qr.render_qr'), patch.object(self.module, 'save_credential') as persist:
+                patch.object(self.module, 'device_path', return_value=str(self.directory / 'device.json')) as device,\
+                patch(self.module.__package__ + '.configuration.qr.render_qr'), patch.object(self.module, 'save_credential') as persist:
             try:
                 asyncio.run(self.module.login(self.ui, self.directory))
             except (ValueError, TimeoutError, asyncio.CancelledError):
@@ -119,6 +117,11 @@ class LoginTests(unittest.TestCase):
                 persist.assert_not_called()
                 raise
             persist.assert_called_once_with(credential, self.directory)
+            self.assertEqual(clients, [
+                {'device_path': str(self.directory / 'device.json')},
+                {'credential': credential, 'device_path': str(self.directory / 'device.json')},
+            ])
+            self.assertEqual(device.call_args_list, [((self.directory,),), ((self.directory,),)])
         self.assertTrue(any('扫描二维码' in message for message in self.ui.messages))
         self.assertFalse(image.exists())
 
@@ -175,7 +178,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReconfigureTests(unittest.TestCase):
-    def test_command_reuses_login_and_updates_configuration(self):
+    def test_independent_configure_reuses_login_and_updates_private_config(self):
+        import importlib
+        import runpy
         class UI:
             def info(self, message): pass
             def ask(self, label, default):
@@ -183,31 +188,21 @@ class ReconfigureTests(unittest.TestCase):
                 return '37'
             def confirm(self, label, default=True): return True
         ui = UI()
-        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, PRIMEBUDDY_HOME=temp):
-            home = Path(temp)
-            package = home / 'skills/diangetai'
-            shutil.copytree(ROOT / 'src', package / 'src', ignore=shutil.ignore_patterns('__pycache__'))
-            for directory in ('cfg', 'docs'):
-                shutil.copytree(ROOT / directory, package / directory)
-            for filename in ('SKILL.md', 'requirements.txt'):
-                shutil.copy(ROOT / filename, package / filename)
-            write_config(home / 'cfg/skills.yaml', {'diangetai': {'path': package.name,
-                       'version': '0.2.0', 'ready': True, 'enabled': True}})
-            write_config(home / 'data/diangetai/config.yaml', {'play_seconds': 30, 'music_effects': False})
-            credential = home / 'data/diangetai/credential.json'
+        namespace = runpy.run_path(str(ROOT / 'main.py'))
+        setup = importlib.import_module('src.setup')
+        support = importlib.import_module('src.support')
+        with tempfile.TemporaryDirectory() as temp:
+            data = Path(temp)
+            path = data / 'config.yaml'
+            support.write_config(path, {'play_seconds': 30, 'music_effects': False})
+            credential = data / 'credential.json'
             credential.write_bytes(b'unchanged-test-login')
-            load = skill_manager.load_entry
-            def load_with_login(root, entry):
-                module = load(root, entry)
-                if entry == 'src/setup.py':
-                    module.check_login = AsyncMock(return_value=True)
-                    module.login = AsyncMock(side_effect=AssertionError('不应再次扫码'))
-                return module
-            with patch('sys.argv', ['primebuddy', 'skill', 'configure', 'diangetai']),\
-                    patch('primebuddy.cli.wizard.Wizard', return_value=ui),\
-                    patch.object(skill_manager, 'load_entry', side_effect=load_with_login), redirect_stdout(io.StringIO()):
-                self.assertEqual(main(), 0)
+            with patch.dict(namespace['main'].__globals__, Console=lambda: ui), \
+                    patch.object(setup, 'check_login', new=AsyncMock(return_value=True)), \
+                    patch.object(setup, 'login', new=AsyncMock(side_effect=AssertionError('不应再次扫码'))), \
+                    patch.dict(os.environ, DIANGETAI_DATA=temp), redirect_stdout(io.StringIO()):
+                self.assertEqual(namespace['main'](['--config', str(path), 'configure']), 0)
             self.assertEqual(ui.seen_default, '30')
-            self.assertEqual(skill_config('diangetai'), {'play_seconds': 37, 'music_effects': True})
-            self.assertTrue(skill_manager.load_skill_records()['diangetai']['ready'])
+            self.assertEqual(support.read_config(path), {'play_seconds': 37, 'music_effects': True})
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(credential.read_bytes(), b'unchanged-test-login')

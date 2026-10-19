@@ -5,14 +5,15 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from primebuddy.skills.manager import load_entry
-from primebuddy.integrations.t1.robot_audio import AudioError
+from helpers import load_entry
+
 from types import SimpleNamespace as Item
 
 
 music_effects_module = load_entry(Path(__file__).resolve().parents[1], 'src/effects/music_effects.py')
 
 
+AudioError = music_effects_module.AudioError
 MODULE = music_effects_module.__name__
 
 
@@ -25,6 +26,7 @@ HAPPY_EMOTION_IDS = music_effects_module.HAPPY_EMOTION_IDS
 class MusicEffectsTests(unittest.TestCase):
     def effects(self, record):
         effects = MusicEffects.__new__(MusicEffects)
+        effects.robot = Mock()
         effects.record = record
         effects.original_light_state = effects.last_owned_light_state = None
         effects.restore_failed = False
@@ -43,7 +45,7 @@ class MusicEffectsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             effects = self.effects(Path(temp)/'restore.json')
             with patch(MODULE + '.random.choice', return_value=19) as choose:
-                effects.begin_music()
+                effects.begin()
             choose.assert_called_once_with(HAPPY_EMOTION_IDS)
             effects.play_emotion.assert_called_once_with(19)
             effects.stop_music()
@@ -56,7 +58,7 @@ class MusicEffectsTests(unittest.TestCase):
             effects = self.effects(Path(temp)/'restore.json')
             effects.play_emotion.side_effect = [AudioError('emotion timeout'), None]
             with self.assertRaisesRegex(AudioError, 'emotion timeout'):
-                effects.begin_music()
+                effects.begin()
             effects.stop_music()
             self.assertEqual(effects.play_emotion.call_args.args, (13,))
             effects.restore_stand.assert_called_once()
@@ -65,7 +67,7 @@ class MusicEffectsTests(unittest.TestCase):
     def test_light_restore_failure_does_not_skip_empty_emotion(self):
         with tempfile.TemporaryDirectory() as temp:
             effects = self.effects(Path(temp)/'restore.json')
-            effects.begin_music()
+            effects.begin()
             effects.restore_light.side_effect = AudioError('light failed')
             with self.assertRaisesRegex(AudioError, 'light failed'):
                 effects.stop_music()
@@ -134,7 +136,7 @@ class MusicEffectsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             effects = self.effects(Path(temp) / 'restore.json')
             effects.select_posture(300)
-            effects.begin_music()
+            effects.begin()
             effects.next_motion_check_at = 0
             effects.next_color_at = 100
             effects.action = Mock(return_value=SimpleNamespace(
@@ -159,7 +161,7 @@ class MusicEffectsTests(unittest.TestCase):
         for fallen, received in ((False, 7), (True, 10)):
             with tempfile.TemporaryDirectory() as temp:
                 effects = self.effects(Path(temp) / 'restore.json')
-                effects.begin_music()
+                effects.begin()
                 effects.next_motion_check_at = 0
                 effects.motion_state.is_fallen = fallen
                 effects.motion_received_at = received
@@ -167,7 +169,7 @@ class MusicEffectsTests(unittest.TestCase):
                     current_action=SimpleNamespace(value=102), status=SimpleNamespace(value=100)))
                 with patch(MODULE + '.time.monotonic', return_value=10), self.assertRaises(AudioError):
                     effects.tick()
-                effects.start.assert_called_once()  # 只有 begin_music 的首次提交。
+                effects.start.assert_called_once()  # 只有 begin 的首次提交。
 
     def test_external_change_from_biped_to_quad_is_not_overridden(self):
         effects = DanceController.__new__(DanceController)
@@ -209,7 +211,7 @@ class MusicEffectsTests(unittest.TestCase):
     def test_music_restarts_completed_motion_but_does_not_interrupt_running_motion(self):
         with tempfile.TemporaryDirectory() as temp:
             effects = self.effects(Path(temp)/'restore.json')
-            effects.begin_music()
+            effects.begin()
             effects.next_motion_check_at = 0
             effects.next_color_at = 100
             effects.action = Mock(return_value=SimpleNamespace(
@@ -255,7 +257,7 @@ class MusicEffectsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             record = Path(temp) / 'restore.json'
             effects = self.effects(record)
-            effects.begin_music()
+            effects.begin()
             effects.restore_stand.side_effect = AudioError('stand not restored')
             with self.assertRaisesRegex(AudioError, 'stand not restored'):
                 effects.stop_music()
@@ -271,7 +273,7 @@ class MusicEffectsTests(unittest.TestCase):
             record.write_text('existing')
             effects = self.effects(record)
             with self.assertRaises(FileExistsError):
-                effects.begin_music()
+                effects.begin()
             effects.stop_music()
             self.assertEqual(record.read_text(), 'existing')
             self.assertIsNone(effects.original_light_state)
@@ -288,6 +290,7 @@ class PrepareStandTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.effects = prepare_stand_module.MusicEffects.__new__(prepare_stand_module.MusicEffects)
         e = self.effects
+        e.robot = Mock()
         e.record = Path(self.temp.name) / 'restore.json'
         e.original_light_state = None
         e.stand_pending = False
@@ -315,7 +318,7 @@ class PrepareStandTests(unittest.TestCase):
                 self.assertTrue(e.record.exists())
                 self.assertTrue(e.stand_pending)
             e.set_stand.side_effect = submitted
-            e.prepare_stand()
+            e.prepare()
             e.set_stand.assert_called_once_with()
             e.wait_stand.assert_called_once_with(after=10)
             self.assertEqual(e.stand_action, 101)
@@ -325,7 +328,7 @@ class PrepareStandTests(unittest.TestCase):
     def test_standing_keeps_exact_current_mode_without_rise_request(self):
         for action in (101, 102, 201, 300):
             self.state(action)
-            self.effects.prepare_stand()
+            self.effects.prepare()
             self.assertEqual(self.effects.stand_action, action)
         self.effects.set_stand.assert_not_called()
         self.effects.wait_stand.assert_not_called()
@@ -335,7 +338,7 @@ class PrepareStandTests(unittest.TestCase):
         for form in (0, 2):
             self.state(1)
             self.effects.motion_state.form_state.current_form = form
-            with self.assertRaises(AudioError): self.effects.prepare_stand()
+            with self.assertRaises(AudioError): self.effects.prepare()
         self.effects.set_stand.assert_not_called()
 
     def test_unsafe_or_stale_feedback_cannot_start_rising(self):
@@ -350,20 +353,20 @@ class PrepareStandTests(unittest.TestCase):
             if kind == 'stale': e.motion_received_at = 7
             if kind == 'different_action': e.motion_state.action_info = Item(current_action=Item(value=110))
             if kind == 'transition': e.action.return_value.status.value = 200
-            with self.subTest(kind=kind), self.assertRaises(AudioError): e.prepare_stand()
+            with self.subTest(kind=kind), self.assertRaises(AudioError): e.prepare()
         e.set_stand.assert_not_called()
 
     def test_resource_failure_prevents_stand(self):
         self.state(1)
         self.effects.require_resource.side_effect = AudioError('缺动作资源')
-        with self.assertRaises(AudioError): self.effects.prepare_stand()
+        with self.assertRaises(AudioError): self.effects.prepare()
         self.effects.set_stand.assert_not_called()
 
     def test_pose_change_during_resource_check_prevents_stand(self):
         self.state(1)
         def change(): self.state(110)
         self.effects.require_resource.side_effect = change
-        with self.assertRaisesRegex(AudioError, '姿态已变化'): self.effects.prepare_stand()
+        with self.assertRaisesRegex(AudioError, '姿态已变化'): self.effects.prepare()
         self.effects.set_stand.assert_not_called()
 
     def test_unknown_stand_result_preserves_record_and_does_not_retry(self):
@@ -373,7 +376,7 @@ class PrepareStandTests(unittest.TestCase):
             e.record.unlink(missing_ok=True)
             e.set_stand, e.wait_stand = Mock(), Mock()
             getattr(e, failed).side_effect = AudioError('超时')
-            with self.assertRaises(AudioError): e.prepare_stand()
+            with self.assertRaises(AudioError): e.prepare()
             self.assertTrue(e.record.exists())
             with self.assertRaisesRegex(AudioError, '记录保留'): e.stop_music()
             e.set_stand.assert_called_once()
@@ -381,7 +384,7 @@ class PrepareStandTests(unittest.TestCase):
     def test_existing_record_prevents_motion(self):
         self.state(1)
         self.effects.record.write_text('keep')
-        with self.assertRaises(FileExistsError): self.effects.prepare_stand()
+        with self.assertRaises(FileExistsError): self.effects.prepare()
         self.effects.set_stand.assert_not_called()
         self.assertEqual(self.effects.record.read_text(), 'keep')
 
@@ -402,37 +405,26 @@ ROOT = Path(__file__).resolve().parents[1]
 class SessionTests(unittest.TestCase):
     def setUp(self):
         self.module = load_entry(ROOT, 'src/effects/session.py')
-        self.context = SimpleNamespace(runtime=Path('/runtime'))
+        self.robot = Mock()
+        self.device = Item(series='T1')
 
-    def test_disabled_effects_do_not_create_ros_node(self):
-        with patch.object(self.module, 'EffectsRobot') as robot:
-            with self.module.effects_session(self.context, False) as effects:
+    def test_disabled_effects_do_not_create_controller(self):
+        with patch.object(self.module, 'MusicEffects') as cls:
+            with self.module.effects_session(self.robot, self.device, Path('/runtime/record'), False) as effects:
                 self.assertIsNone(effects)
-            robot.assert_not_called()
+            cls.assert_not_called()
 
-    def test_node_closed_and_effects_restored_even_when_song_cleanup_fails(self):
-        with patch.object(self.module, 'EffectsRobot') as robot, patch.object(self.module, 'MusicEffects') as cls:
+    def test_effects_restore_and_close_on_song_failure(self):
+        with patch.object(self.module, 'MusicEffects') as cls:
             with self.assertRaisesRegex(AudioError, '播放器关闭失败'):
-                with self.module.effects_session(self.context, True):
+                with self.module.effects_session(self.robot, self.device, Path('/runtime/record'), True):
                     raise AudioError('播放器关闭失败')
-            cls.return_value.inspect.assert_called_once()
-            cls.return_value.require_ready.assert_called_once()
-            cls.return_value.prepare_stand.assert_not_called()
             cls.return_value.stop_music.assert_called_once()
-            robot.return_value.close.assert_called_once()
+            cls.return_value.close.assert_called_once()
 
-    def test_failed_initialization_still_closes_ros_node(self):
-        with patch.object(self.module, 'EffectsRobot') as robot,\
-                patch.object(self.module, 'MusicEffects', side_effect=AudioError('存在恢复记录')):
-            with self.assertRaisesRegex(AudioError, '恢复记录'):
-                with self.module.effects_session(self.context, True):
-                    self.fail('不得进入播放')
-            robot.return_value.close.assert_called_once()
-
-    def test_failed_restoration_is_reported_and_node_closed(self):
-        with patch.object(self.module, 'EffectsRobot') as robot, patch.object(self.module, 'MusicEffects') as cls:
-            cls.return_value.stop_music.side_effect = AudioError('恢复未完成')
-            with self.assertRaisesRegex(AudioError, '恢复未完成'):
-                with self.module.effects_session(self.context, True):
-                    pass
-            robot.return_value.close.assert_called_once()
+    def test_q1_assembles_its_own_effects(self):
+        with patch.object(self.module, 'Q1MusicEffects') as q1, patch.object(self.module, 'MusicEffects') as t1:
+            with self.module.effects_session(self.robot, Item(series='Q1'), Path('/runtime/record'), True):
+                pass
+            q1.assert_called_once()
+            t1.assert_not_called()
