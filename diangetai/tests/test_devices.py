@@ -33,8 +33,8 @@ class Q1EffectsTests(unittest.TestCase):
 
     def test_q1_accepts_stationary_humanoid_without_t1_form_fields(self):
         self.assertEqual(self.effects.require_ready(), 1002)
-        self.assertEqual(self.effects.motion_name, 'DANCE_LOCKING')
-        self.assertEqual(self.effects.dance_action, 1003)
+        self.assertEqual(self.effects.motion_name, 'Q_DANCE_A/B/C')
+        self.assertEqual(self.effects.dance_action, 1005)
 
     def test_passive_and_t1_modes_are_never_treated_as_quad_prone(self):
         for action in (1, 101, 110, 201, 300, 1001, 1003, 1008):
@@ -64,17 +64,16 @@ class Q1EffectsTests(unittest.TestCase):
             e.set_stand.assert_not_called()
             self.assertFalse(e.record.exists())
 
-    def test_q1_motion_request_and_return_mode_use_q_series_ids(self):
+    def test_q1_preset_and_return_modes_use_q_series_ids(self):
         e = self.effects
-        e.request = Mock(return_value=Item(source='', motion='', type=0, interrupt=True,
-                                         operation=0, EXECUTION=2, MIMIC_QY=1))
-        e.rpc = Mock(return_value=Item(response=Item(task_id=1)))
-        e.action.return_value.current_action.value = 1003
-        e.start()
+        e.request = Mock(return_value=Item(source='', command=Item(action=Item(value=0), action_desc='')))
+        e.last_control_at = 10
+        e.rpc = Mock(return_value=Item(task_id=1))
+        e.set_mode(1005)
         request = e.request.return_value
-        self.assertEqual((request.motion, request.type, request.operation), ('DANCE_LOCKING', 1, 2))
-        request.command = Item(action=Item(value=0), action_desc='')
-        e.set_stand(cleanup=True)
+        self.assertEqual((request.command.action.value, request.command.action_desc), (1005, 'BIPED_WHOLE_BODY_CTRL'))
+        e.action.return_value.current_action.value = 1005
+        e.set_mode(1002, cleanup=True)
         self.assertEqual((request.command.action.value, request.command.action_desc), (1002, 'BIPED_WALK_RUN'))
 
     def test_q1_happy_and_reset_never_use_t1_emotion_ids(self):
@@ -84,6 +83,8 @@ class Q1EffectsTests(unittest.TestCase):
             e.original_light_state = e.last_owned_light_state = None
             e.stand_pending = e.restore_failed = e.emotion_submitted = False
             e.require_stand = Mock(return_value=(255, 0, 0, 0, 0))
+            e.music_playing = lambda: True
+            e.task_running_seen = True
             e.start, e.restore_stand, e.restore_light, e.play_emotion = Mock(), Mock(), Mock(), Mock()
             e.begin()
             e.play_emotion.assert_called_once_with(3003)
@@ -91,11 +92,12 @@ class Q1EffectsTests(unittest.TestCase):
             e.play_emotion.assert_called_with(3001, cleanup=True)
             self.assertFalse(e.record.exists())
 
-    def test_missing_q1_motion_cannot_fall_back_to_t1(self):
+    def test_missing_q1_preset_endpoint_cannot_fall_back_to_t1(self):
         e = self.effects
-        e.request = Mock()
-        e.rpc = Mock(return_value=Item(motion=[Item(tag='QUAD_MIMIC')]))
-        with self.assertRaisesRegex(AudioError, 'DANCE_LOCKING'):
+        client = Mock()
+        client.wait_for_service.return_value = False
+        e.clients = {'SetMcPresetMotion': client}
+        with self.assertRaisesRegex(AudioError, 'SetMcPresetMotion'):
             e.require_resource()
 
 

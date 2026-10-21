@@ -42,7 +42,8 @@ class RobotFacade:
 
     def effects(self, enabled):
         from ..effects.session import effects_session
-        return effects_session(self.player.robot, self.device, self.runtime / 'music_effects.json', enabled)
+        return effects_session(self.player.robot, self.device, self.runtime / 'music_effects.json', enabled,
+                               music_playing=self.player.is_playing)
 
     def play_music(self, source, **options):
         return self.player.play(source, **options)

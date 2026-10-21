@@ -63,6 +63,31 @@ class AudioOutputTests(unittest.TestCase):
         self.assertEqual(events, ['prepare', 'ready', ('play', 60), 'started', 'tick',
                                   'finished', 'stop_owned', 'file_cleanup', 'node_close'])
 
+    def test_motion_gate_uses_latest_owned_media_feedback_before_poll(self):
+        self.assertFalse(self.output.is_playing())
+        media = NativeMedia.__new__(NativeMedia)
+        media.trace_id, media.events = 'owned', []
+        media.submitted, media.stop_requested = True, False
+        self.output.media = media
+        self.addCleanup(setattr, self.output, 'media', None)
+        self.assertFalse(self.output.is_playing())
+        def status(value, trace='owned'):
+            media.on_status(NS(trace_id=trace, tts_status=NS(value=value)))
+        status(2)
+        self.assertTrue(self.output.is_playing())
+        status(3, 'other')
+        self.assertTrue(self.output.is_playing())
+        # 回调内 spin 收到 END 时，外层尚未执行 poll，也必须停止新动作。
+        for terminal in (3, 4, 5, 7):
+            status(2)
+            status(terminal)
+            self.assertFalse(self.output.is_playing())
+        status(2)
+        media.stop_requested = True
+        self.assertFalse(self.output.is_playing())
+        media.stop_requested, media.submitted = False, False
+        self.assertFalse(self.output.is_playing())
+
     def test_failed_preparation_never_runs_motion_or_play(self):
         with patch.object(self.Prepared, 'wait_ready', side_effect=AudioError('decode failed')):
             with self.assertRaises(AudioError):
@@ -76,6 +101,19 @@ class AudioOutputTests(unittest.TestCase):
             self.output.play('https://example.com/a', on_started=failed)
         self.output.close()
         self.assertEqual(self.events[-3:], ['stop_owned', 'file_cleanup', 'node_close'])
+
+    def test_cleanup_failure_preserves_callback_cause_in_safe_diagnostics(self):
+        def failed(): raise AudioError('原厂预设查询未返回任务ID')
+        with patch.object(self.Media, 'stop', side_effect=AudioError('停止未确认')), \
+                self.assertLogs(MODULE, level='ERROR') as logs:
+            with self.assertRaisesRegex(AudioError, '停止未确认'):
+                self.output.play('https://example.com/a', on_tick=failed)
+        self.assertIn('AUDIO_CALLBACK_FAILED on_tick 原厂预设查询未返回任务ID', logs.output[0])
+        def private_failure(): raise RuntimeError('https://example.com/?token=private')
+        with self.assertLogs(MODULE, level='ERROR') as logs:
+            with self.assertRaises(RuntimeError):
+                self.output.play('https://example.com/a', on_started=private_failure)
+        self.assertNotIn('token', '\n'.join(logs.output))
 
     def test_cancel_while_waiting_for_speaker_does_not_create_node(self):
         self.output.lock.acquire()

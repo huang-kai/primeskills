@@ -6,6 +6,8 @@ import unittest
 from unittest.mock import Mock, patch
 AudioError = ValueError
 import asyncio
+import os
+import tempfile
 import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -185,6 +187,11 @@ ROOT = Path(__file__).resolve().parents[1]
 class SearchTests(unittest.TestCase):
     def setUp(self):
         self.module = load_entry(ROOT, 'src/music/qqmusic_client.py')
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        environment = patch.dict(os.environ, DIANGETAI_DATA=temporary.name)
+        environment.start()
+        self.addCleanup(environment.stop)
         self.song = SimpleNamespace(name='甲乙丙丁', title='甲乙丙丁',
                                    singer=[SimpleNamespace(name='测试歌手')])
         self.search = AsyncMock(return_value=SimpleNamespace(song=[self.song]))
@@ -207,7 +214,7 @@ class SearchTests(unittest.TestCase):
             with self.assertRaisesRegex(self.module.SkillError, '没有找到匹配的' + noun):
                 self.query('不存在的名称', kind)
 
-    def test_expired_credential_during_resource_fetch_requires_login(self):
+    def test_expired_resource_and_unrefreshable_login_require_configuration(self):
         class CredentialExpiredError(Exception):
             pass
         client = MagicMock()
@@ -222,11 +229,13 @@ class SearchTests(unittest.TestCase):
         with patch.dict('sys.modules', modules),\
                 patch.object(self.module, 'device_path', return_value='/private-test/device.json'),\
                 patch.object(self.module, 'load_credential', return_value=object()),\
+                patch.object(self.module, 'refresh_login', new=AsyncMock(return_value=False)) as refresh,\
                 patch.object(self.module, 'search', new=AsyncMock(return_value=[self.song])),\
                 patch.object(self.module, 'song_url', new=AsyncMock(
                     side_effect=CredentialExpiredError('private signed URL'))):
-            with self.assertRaisesRegex(self.module.SkillError, 'QQ 音乐登录已过期') as error:
+            with self.assertRaisesRegex(self.module.SkillError, 'QQ 音乐登录及刷新凭据已失效') as error:
                 asyncio.run(self.module.select_song({'artist': '', 'song': '甲乙丙丁'}))
+        refresh.assert_awaited_once()
         self.assertIn('python3 main.py configure', str(error.exception))
         self.assertNotIn('private', str(error.exception))
         client.__aexit__.assert_awaited_once()

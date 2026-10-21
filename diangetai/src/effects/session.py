@@ -4,11 +4,13 @@ from .music_effects import MusicEffects, Q1MusicEffects
 
 
 @contextmanager
-def effects_session(robot, device, record, enabled):
+def effects_session(robot, device, record, enabled, music_playing=lambda: False):
     if not enabled:
         yield None
         return
-    effects = {'T1': MusicEffects, 'Q1': Q1MusicEffects}[device.series](robot, record)
+    kind = {'T1': MusicEffects, 'Q1': Q1MusicEffects}[device.series]
+    options = {'music_playing': music_playing} if device.series == 'Q1' else {}
+    effects = kind(robot, record, **options)
     try:
         effects.inspect()
         effects.require_ready()

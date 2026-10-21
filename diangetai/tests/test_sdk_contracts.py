@@ -56,8 +56,13 @@ class SdkContractTests(unittest.TestCase):
                 definitions = {path.stem: path.read_text() for path in sdk.rglob('*.msg')}
                 controller = kind.__new__(kind)
                 controller.robot = Mock()
+                controller.music_playing = lambda: True
+                controller.last_control_at = -1
                 controller.types, controller.clients = {}, {}
-                for name in ('GetMcAction', 'SetMcAction', 'SetMcMotion', 'LedStripCommand'):
+                names = ['GetMcAction', 'SetMcAction', 'SetMcMotion', 'LedStripCommand']
+                if directory == 'primebot-q1-sdk':
+                    names.append('SetMcPresetMotion')
+                for name in names:
                     request, response = next(sdk.rglob(name + '.srv')).read_text().split('---', 1)
                     all_definitions = dict(definitions, Request=request, Response=response)
                     cache = {}
@@ -65,6 +70,8 @@ class SdkContractTests(unittest.TestCase):
                                    Response=message_type('Response', all_definitions, cache))
                     controller.types[name] = service
                     reply = service.Response()
+                    if hasattr(reply, 'response') and hasattr(reply.response, 'state'):
+                        reply.response.state.value = 1
                     client = Mock()
                     client.service_is_ready.return_value = True
                     client.call_async.return_value.done.return_value = True

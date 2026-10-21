@@ -423,8 +423,10 @@ class SessionTests(unittest.TestCase):
             cls.return_value.close.assert_called_once()
 
     def test_q1_assembles_its_own_effects(self):
+        playing = lambda: True
         with patch.object(self.module, 'Q1MusicEffects') as q1, patch.object(self.module, 'MusicEffects') as t1:
-            with self.module.effects_session(self.robot, Item(series='Q1'), Path('/runtime/record'), True):
+            with self.module.effects_session(self.robot, Item(series='Q1'), Path('/runtime/record'), True,
+                                             music_playing=playing):
                 pass
-            q1.assert_called_once()
+            q1.assert_called_once_with(self.robot, Path('/runtime/record'), music_playing=playing)
             t1.assert_not_called()

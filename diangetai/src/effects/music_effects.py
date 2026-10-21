@@ -378,15 +378,324 @@ class MusicEffects(DanceController):
 
 
 class Q1MusicEffects(MusicEffects):
-    """Q1 人形：仅在稳定的走跑模式跳舞，不推断四足或发送形态切换。"""
+    """Q1 使用原厂预设上肢舞蹈；每段完成后再选下一段。"""
     stand_action = 1002
     standing_actions = {1002}
-    dance_action = 1003
-    motion_name = 'DANCE_LOCKING'
+    dance_action = 1005
+    motion_name = 'Q_DANCE_A/B/C'
+    dance_motions = (3046, 3047, 3048)
     posture_name = '人形'
     happy_ids = (3003,)
     reset_emotion_id = 3001
-    action_descriptions = {1002: 'BIPED_WALK_RUN'}
+    action_descriptions = {1002: 'BIPED_WALK_RUN', 1005: 'BIPED_WHOLE_BODY_CTRL'}
+
+    def __init__(self, robot, record, music_playing=lambda: False):
+        try:
+            from aimdk_msgs.srv import SetMcPresetMotion, GetMcPresetMotionState
+        except ImportError:
+            raise AudioError('Q1 缺少原厂预设动作或任务查询接口，联动不可用。') from None
+        super().__init__(robot, record)
+        self.music_playing = music_playing
+        self.task_id = self.last_motion = None
+        self.completed_wait_at = None
+        self.last_task_diagnostic = None
+        self.task_submitted_at = 0
+        self.task_owner_seen = self.task_running_seen = False
+        self.mode_task_id = None
+        self.mode_previous_task_id = 0
+        self.mode_submitted_at = 0
+        self.last_control_at = -1
+        self.mode_owned = self.command_unknown = self.control_lost = False
+        for kind in (SetMcPresetMotion, GetMcPresetMotionState):
+            self.types[kind.__name__] = kind
+            self.clients[kind.__name__] = robot.node.create_client(kind, '/aimdk_5Fmsgs/srv/' + kind.__name__)
+
+    def require_resource(self):
+        for name in ('SetMcPresetMotion', 'GetMcPresetMotionState'):
+            if not self.clients[name].wait_for_service(timeout_sec=5):
+                raise AudioError('Q1 原厂 ' + name + ' 接口不可用。')
+        resources = self.rpc('GetMcMotions', self.request('GetMcMotions')).motion
+        for motion in (0, *self.dance_motions):
+            registered = next((item for item in resources if item.tag == str(motion)), None)
+            if (registered is None or registered.type.value != 1
+                    or registered.intr_info.intr_type.value != 1):
+                raise AudioError('Q1 原厂预设资源 ' + str(motion) + ' 缺失或不能自由打断。')
+
+    def request(self, name):
+        if name != 'GetMcPresetMotionState':
+            return super().request(name)
+        request = self.types[name].Request()
+        request.request.header.stamp = self.robot.node.get_clock().now().to_msg()
+        return request
+
+    def rpc(self, name, request, cleanup=False):
+        if name not in {'SetMcAction', 'SetMcPresetMotion', 'GetMcPresetMotionState'}:
+            return super().rpc(name, request, cleanup)
+        client = self.clients[name]
+        writing = name != 'GetMcPresetMotionState'
+        deadline = time.monotonic() + 8
+        while not client.service_is_ready():
+            if writing and not cleanup and not self.music_playing():
+                return None
+            self.robot.spin(cancellable=not cleanup)
+            if time.monotonic() >= deadline:
+                raise AudioError(name + ' 服务未就绪。')
+        if writing:
+            while time.monotonic() - self.last_control_at < .12:
+                self.robot.spin(cancellable=not cleanup)
+                if not cleanup and not self.music_playing():
+                    return None
+            # 检查协作取消并处理已到达的 END，再决定是否写入。
+            self.robot.spin(0, cancellable=not cleanup)
+        # 等待服务期间可能收到音乐 END；必须在实际写入前再次核对。
+        if writing and not cleanup and not self.music_playing():
+            return None
+        if writing:
+            if not self.write_owned(cleanup):
+                return None
+            if not cleanup and not self.music_playing():
+                return None
+            self.command_unknown = True
+            self.last_control_at = time.monotonic()
+        future = client.call_async(request)
+        while not future.done():
+            self.robot.spin(cancellable=not cleanup)
+            if time.monotonic() >= deadline:
+                raise AudioError(name + ' 请求超时，执行结果未知；未重发。')
+        response = future.result().response
+        if writing:
+            self.command_unknown = False
+        if name == 'GetMcPresetMotionState':
+            return response
+        if response.header.code != 0 or response.state.reason != 0:
+            raise AudioError(name + ' 拒绝请求。')
+        if writing and response.state.value not in (1, 400):
+            raise AudioError(name + ' 未接受请求，state=' + str(response.state.value))
+        return response
+
+    def write_owned(self, cleanup):
+        if getattr(self, 'mode_task_id', None) is not None:
+            while True:
+                fresh = (self.motion_state is not None and time.monotonic() - self.motion_received_at <= 2
+                         and self.motion_received_at >= self.mode_submitted_at)
+                info = getattr(self.motion_state, 'task_info', None) if fresh else None
+                task_id = getattr(info, 'task_id', None)
+                if fresh and task_id == self.mode_task_id:
+                    return True
+                if fresh and task_id not in (self.mode_previous_task_id, self.mode_task_id):
+                    self.control_lost = True
+                    raise AudioError('Q1 全身控制模式已被其他任务接管；未提交预设动作。')
+                if time.monotonic() - self.mode_submitted_at > 8:
+                    raise AudioError('Q1 自有模式任务归属未确认，恢复记录保留。')
+                if not cleanup and not self.music_playing():
+                    return False
+                self.robot.spin(cancellable=not cleanup)
+        if getattr(self, 'task_id', None) is not None and not self.preset_owned():
+            raise AudioError('Q1 当前预设任务归属未确认，恢复记录保留；未发送覆盖动作。')
+        return True
+
+    def safe_action(self, stationary=False):
+        info = self.action(cleanup=True)
+        state = self.motion_state
+        if (state is None or time.monotonic() - self.motion_received_at > 2 or state.is_fallen
+                or stationary and state.is_moving):
+            raise AudioError('Q1 运控反馈过期、跌倒或未确认静止；未继续控制。')
+        for name, field in (('lift_state', 'is_lifted'), ('held_state', 'is_held')):
+            extra = getattr(state, name, None)
+            if extra is not None and getattr(extra, field):
+                raise AudioError('Q1 被提起或抱持；未继续控制。')
+        if info.current_action.value not in (1002, 1005):
+            self.control_lost = True
+            raise AudioError('Q1 已进入其他动作；未覆盖外部控制。')
+        return info
+
+    def set_mode(self, action, cleanup=False):
+        if cleanup and action == 1002:
+            self.robot.spin(0, cancellable=False)
+            if self.safe_action(stationary=True).current_action.value == 1002:
+                return True
+        request = self.request('SetMcAction')
+        request.source = 'sdk_rpc'
+        request.command.action.value = action
+        request.command.action_desc = self.action_descriptions[action]
+        response = self.rpc('SetMcAction', request, cleanup)
+        if response is not None and action == 1005:
+            previous = getattr(self, 'task_id', None)
+            self.mode_task_id = response.task_id or previous
+            self.mode_previous_task_id = previous or 0
+            self.mode_submitted_at = self.last_control_at
+            self.task_id = None
+            self.task_owner_seen = self.task_running_seen = False
+        return response is not None
+
+    def wait_mode(self, action, cleanup=False, after=0):
+        targets = action if isinstance(action, tuple) else (action,)
+        deadline = time.monotonic() + 15
+        while True:
+            self.robot.spin(cancellable=not cleanup)
+            info = self.safe_action()
+            state_action = getattr(self.motion_state, 'action_info', None)
+            if (info.current_action.value in targets and info.status.value == ACTION_RUNNING
+                    and self.motion_received_at >= after
+                    and not self.motion_state.is_moving
+                    and (state_action is None or state_action.current_action.value == info.current_action.value)):
+                return info.current_action.value
+            if not cleanup and not self.music_playing():
+                return False
+            if time.monotonic() >= deadline:
+                raise AudioError('Q1 未确认模式切换完成；恢复记录保留。')
+
+    def submit_preset(self, motion, cleanup=False):
+        request = self.request('SetMcPresetMotion')
+        request.source, request.motion.value = 'sdk_rpc', motion
+        request.area.value, request.interrupt, request.ani_path = 0, cleanup, ''
+        response = self.rpc('SetMcPresetMotion', request, cleanup)
+        if response is None:
+            return False
+        if not response.task_id:
+            self.command_unknown = True
+            raise AudioError('Q1 预设动作没有返回有效任务 ID，恢复记录保留。')
+        self.task_id = response.task_id
+        self.mode_task_id = None
+        self.last_motion = motion
+        self.task_submitted_at = self.last_control_at
+        self.task_owner_seen = self.task_running_seen = False
+        with self.record.open() as source:
+            saved = json.load(source)
+        saved.update(task_id=self.task_id, preset_motion=motion)
+        from ..support import write_json
+        write_json(self.record, saved)
+        logger.info('Q1_PRESET_SUBMITTED %s %s', motion, self.task_id)
+        self.task_state(cleanup=cleanup)
+        return True
+
+    def preset_owned(self):
+        fresh = (self.motion_state is not None and time.monotonic() - self.motion_received_at <= 2
+                 and self.motion_received_at >= self.task_submitted_at)
+        task_info = getattr(self.motion_state, 'task_info', None) if fresh else None
+        task_id = getattr(task_info, 'task_id', None)
+        if fresh and self.task_owner_seen and task_id != self.task_id:
+            self.control_lost = True
+            raise AudioError('Q1 预设动作已被其他任务接管；未覆盖外部控制。')
+        if fresh and task_id == self.task_id:
+            self.task_owner_seen = True
+            return True
+        return False
+
+    def task_state(self, cleanup=False):
+        self.robot.spin(0, cancellable=not cleanup)
+        request = self.request('GetMcPresetMotionState')
+        request.request.task_id = self.task_id
+        response = self.rpc('GetMcPresetMotionState', request, cleanup)
+        fresh = (self.motion_state is not None and time.monotonic() - self.motion_received_at <= 2
+                 and self.motion_received_at >= self.task_submitted_at)
+        task_info = getattr(self.motion_state, 'task_info', None) if fresh else None
+        diagnostic = {'request_task_id': self.task_id, 'response_task_id': response.task_id,
+                      'code': response.header.code, 'state': response.state.value,
+                      'reason': response.state.reason, 'mc_task_id': getattr(task_info, 'task_id', None),
+                      'mc_fresh': fresh}
+        if diagnostic != self.last_task_diagnostic:
+            logger.info('Q1_PRESET_STATUS %s', json.dumps(diagnostic))
+            self.last_task_diagnostic = diagnostic
+        if response.header.code != 0 or response.state.reason != 0:
+            raise AudioError('GetMcPresetMotionState 拒绝请求。')
+        if response.task_id not in (0, self.task_id):
+            self.control_lost = True
+            raise AudioError('Q1 预设动作任务未确认正常完成；未覆盖外部控制。')
+        if self.preset_owned():
+            if response.state.value == 400:
+                self.task_running_seen = True
+                return 400
+            if response.state.value != 1:
+                self.control_lost = True
+                raise AudioError('Q1 预设动作任务未确认正常完成；未覆盖外部控制。')
+            if self.task_running_seen:
+                return 1
+            if self.last_motion == 0:
+                info = self.safe_action()
+                state_action = getattr(self.motion_state, 'action_info', None)
+                if (self.preset_owned() and info.current_action.value == 1002
+                        and info.status.value == ACTION_RUNNING and not self.motion_state.is_moving
+                        and state_action is not None and state_action.current_action.value == 1002):
+                    return 1
+        if time.monotonic() - self.task_submitted_at > 8:
+            raise AudioError('Q1 原厂预设状态未证实本任务生命周期，恢复记录保留。')
+        return None
+
+    def start(self):
+        if not self.music_playing():
+            return False
+        info = self.safe_action()
+        if info.status.value != ACTION_RUNNING or self.motion_state.is_moving:
+            if self.task_id is None:
+                raise AudioError('Q1 模式未稳定，未提交预设舞蹈。')
+            return False
+        if info.current_action.value == 1002:
+            requested_at = time.monotonic()
+            if not self.set_mode(1005):
+                return False
+            self.mode_owned = True
+            if not self.wait_mode(1005, after=requested_at):
+                return False
+        motion = random.choice(tuple(m for m in self.dance_motions if m != self.last_motion))
+        return self.submit_preset(motion)
+
+    def happy(self):
+        while self.music_playing() and not self.task_running_seen:
+            self.task_state()
+            self.robot.spin()
+        if self.music_playing():
+            super().happy()
+
+    def tick(self):
+        self.robot.spin(0)
+        if self.original_light_state is None or not self.music_playing():
+            return
+        self.safe_action()
+        if time.monotonic() >= self.next_motion_check_at:
+            if self.task_id is not None and self.task_state() == 1:
+                if self.completed_wait_at is None:
+                    self.completed_wait_at = time.monotonic()
+                if self.start():
+                    self.completed_wait_at = None
+                elif self.music_playing() and time.monotonic() - self.completed_wait_at > 3:
+                    raise AudioError('Q1 动作结束后未确认静止，停止续发舞蹈。')
+            self.next_motion_check_at = time.monotonic() + .1
+        if time.monotonic() >= self.next_color_at and self.music_playing():
+            self.last_owned_light_state = BLINK_LIGHT_STATES[self.color_index % len(BLINK_LIGHT_STATES)]
+            self.light(self.last_owned_light_state)
+            self.color_index += 1
+            self.next_color_at = time.monotonic() + 1
+
+    def restore_stand(self):
+        if self.command_unknown or self.control_lost:
+            raise AudioError('Q1 动作结果未知或控制权已变化，恢复记录保留；未重复强制控制。')
+        info = self.safe_action()
+        if info.current_action.value == 1002:
+            if self.task_id is not None and self.task_state(cleanup=True) != 1:
+                raise AudioError('Q1 模式与预设任务状态不一致，恢复记录保留。')
+            self.wait_mode(1002, cleanup=True, after=time.monotonic())
+            return
+        if not self.mode_owned:
+            raise AudioError('Q1 当前全身控制模式不属于本任务，未强制恢复。')
+        if self.task_id is not None:
+            state = self.task_state(cleanup=True)
+            if state is None and not self.preset_owned():
+                raise AudioError('Q1 当前预设任务归属尚未确认，恢复记录保留；未发送覆盖动作。')
+            # 默认姿态是原厂预设，不把取消 RPC 的接受响应当作归位完成。
+            self.submit_preset(0, cleanup=True)
+            deadline = time.monotonic() + 15
+            while self.task_state(cleanup=True) != 1:
+                self.robot.spin(cancellable=False)
+                self.safe_action()
+                if time.monotonic() >= deadline:
+                    raise AudioError('Q1 默认姿态任务结束未确认，恢复记录保留。')
+        requested_at = time.monotonic()
+        if self.wait_mode((1002, 1005), cleanup=True, after=requested_at) == 1005:
+            requested_at = time.monotonic()
+            self.set_mode(1002, cleanup=True)
+        self.wait_mode(1002, cleanup=True, after=requested_at)
+        logger.info('DANCE_STAND_RESTORED Q1 1002')
 
     def select_posture(self, action):
         if action != self.stand_action:

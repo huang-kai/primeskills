@@ -1,5 +1,6 @@
 """技能统一音频能力：串行播放、转码、原厂会话生命周期与任务清理。"""
 from contextlib import ExitStack
+import logging
 import math
 from pathlib import Path
 import threading
@@ -10,6 +11,8 @@ from .transport import Robot as RobotAudio
 from .native_media import NativeMedia
 from .prepared_audio import PreparedAudio
 
+logger = logging.getLogger(__name__)
+
 
 class AudioOutput:
     def __init__(self, runtime, checkpoint):
@@ -18,6 +21,12 @@ class AudioOutput:
         self.owner = None
         self.robot = self.media = None
         self.closed = False
+
+    def is_playing(self):
+        """只认可本次媒体的最新播放反馈；END 到达后无需等待 poll。"""
+        media = self.media
+        return bool(media is not None and media.submitted and not media.stop_requested
+                    and media.events and media.events[-1][1] == 2)
 
     def play(self, source, *, max_seconds=0, expected_seconds=None, before_play=None,
              on_started=None, on_tick=None, on_finished=None, checkpoint=None):
@@ -43,6 +52,16 @@ class AudioOutput:
             self.checkpoint()
             if checkpoint is not None:
                 checkpoint()
+        def notify(name, callback):
+            if callback is None:
+                return
+            try:
+                callback()
+            except BaseException as error:
+                # finally 中的媒体停止也可能失败；先保留业务首因，不输出第三方异常正文。
+                detail = str(error) if isinstance(error, AudioError) else type(error).__name__
+                logger.error('AUDIO_CALLBACK_FAILED %s %s', name, detail)
+                raise
         while not self.lock.acquire(timeout=.05):
             check()
         self.owner = threading.get_ident()
@@ -69,8 +88,7 @@ class AudioOutput:
                 prepared = PreparedAudio(self.runtime, source, max_seconds, expected_seconds)
                 stack.callback(prepared.close)
                 prepared.wait_ready(check)
-                if before_play:
-                    before_play()
+                notify('before_play', before_play)
                 check()
                 media = self._player()
                 stack.callback(media.stop)  # 先停自有音频，再删文件；节点保留至会话结束。
@@ -79,16 +97,13 @@ class AudioOutput:
                 while True:
                     robot.spin()
                     if media.poll():
-                        if on_finished:
-                            on_finished()
+                        notify('on_finished', on_finished)
                         return {'seconds': prepared.seconds, 'limited': prepared.limited}
                     if media.started is not None:
                         if not notified:
                             notified = True
-                            if on_started:
-                                on_started()
-                        if on_tick:
-                            on_tick()
+                            notify('on_started', on_started)
+                        notify('on_tick', on_tick)
         finally:
             if self.robot is not None and spin is not None:
                 self.robot.spin = spin

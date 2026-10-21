@@ -108,6 +108,7 @@ class LoginTests(unittest.TestCase):
         login_utils.QRCodeLoginSession = lambda *args, **kwargs: session
         with patch.dict('sys.modules', {'qqmusic_api': api, 'qqmusic_api.models.login': models,
                                        'qqmusic_api.modules.login_utils': login_utils}),\
+                patch.object(self.module, '_check_login', new=AsyncMock(return_value=False)),\
                 patch.object(self.module, 'device_path', return_value=str(self.directory / 'device.json')) as device,\
                 patch(self.module.__package__ + '.configuration.qr.render_qr'), patch.object(self.module, 'save_credential') as persist:
             try:
