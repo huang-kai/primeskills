@@ -1,6 +1,6 @@
 # 易来灯控 yeelight
 
-易来灯控通过本地 `yeelight-home` MCP 接口打开或关闭灯具、房间或全屋灯光。当前包版本 **0.2.0**，业务和命令行入口均可独立运行，不导入 PrimeBuddy。
+易来灯控通过本地 `yeelight-home` MCP 接口打开或关闭灯具、房间或全屋灯光。当前包版本 **0.3.0**，业务和命令行入口均可独立运行，不导入 PrimeBuddy。
 
 当前只接入开关，不支持亮度、色温、渐变、闪烁、循环变色或场景。
 
@@ -71,14 +71,16 @@ SIGINT、SIGTERM、SIGHUP 使业务停止继续等待，关闭自身 MCP 进程�
 
 ## 接入 PrimeBuddy
 
-配合包含 CLI 宿主适配的 PrimeBuddy 使用：
+本版本配套 PrimeBuddy 1.1.0。框架声明的易来兼容范围为 `>=0.3.0, <0.4.0`，推荐 `0.3.0`；后续以目标框架的 `release.json` 为准。首次安装技能：
 
 ```bash
-primebuddy skill install ./yeelight-0.2.0.rpk
+primebuddy skill install ./yeelight-0.3.0.rpk
 primebuddy skill configure yeelight
 ```
 
 Buddy 在自己的适配配置中选择已有的 `context`、预检、预览和控制命令，管理参数、任务资源和期限；技能不实现宿主 Context 或生命周期函数，`cfg/pkg.yaml` 仅保留包信息。详见 [宿主接入说明](references/buddy.md)。
+
+已有托管安装时，先退出语音会话，再用 `primebuddy update --check` 检查，使用 `primebuddy update` 联合更新框架与已安装技能；保留原配置和启用状态，不重新配置外部工具账号。旧框架 1.0.0 尚无更新命令，首次须在原安装板解压新框架包并运行 `source ./scripts/install.sh`。外部源码目录由用户自行更新，更新器只检查和提示。旧易来 0.2.0 不能继续使用新版 Buddy 的 CLI 适配；独立使用本技能不要求安装 Buddy。
 
 ## 开发与验证
 

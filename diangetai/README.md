@@ -2,7 +2,7 @@
 
 点歌台支持启元 T1/Q1，可独立播放 QQ 音乐，也可由语音助手调用。指定歌手或歌名即可点歌，播放时长和可选舞蹈、表情、灯光联动使用技能自己的配置。
 
-当前包版本 **0.3.0**。业务程序不导入 PrimeBuddy，也不要求宿主传入 Context 或播放器。原厂 SDK、歌曲转码、播放生命周期与清理由技能自己管理。
+当前包版本 **0.4.0**。业务程序不导入 PrimeBuddy，也不要求宿主传入 Context 或播放器。原厂 SDK、歌曲转码、播放生命周期与清理由技能自己管理。
 
 ## 独立安装与配置
 
@@ -94,14 +94,16 @@ python3 main.py --runtime-dir /path/runtime recover
 
 ## 接入 PrimeBuddy
 
-配合包含 CLI 宿主适配的 PrimeBuddy 使用：
+本版本配套 PrimeBuddy 1.1.0。框架声明的点歌台兼容范围为 `>=0.4.0, <0.5.0`，推荐 `0.4.0`；后续以目标框架的 `release.json` 为准。首次安装技能：
 
 ```bash
-primebuddy skill install ./diangetai-0.3.0.rpk
+primebuddy skill install ./diangetai-0.4.0.rpk
 primebuddy skill configure diangetai
 ```
 
 宿主适配定义在 Buddy 自己的配置中，将参数、资源、期限、预检和恢复命令映射到本技能已有 CLI。技能的 `cfg/pkg.yaml` 只保留包信息，不声明 Buddy Python 入口。详细分工见 [宿主接入说明](references/buddy.md)。
+
+已有托管安装时，先退出语音会话，再用 `primebuddy update --check` 检查，使用 `primebuddy update` 联合更新框架与已安装技能；原配置、QQ 登录、设备身份和启用状态保持。旧框架 1.0.0 尚无更新命令，首次须在原安装板解压新框架包并运行 `source ./scripts/install.sh`。外部源码目录由用户自行更新，更新器只检查和提示。旧点歌台 0.3.0 不能继续使用新版 Buddy 的 CLI 适配；独立使用本技能不要求安装 Buddy。
 
 ## 开发与验证
 
