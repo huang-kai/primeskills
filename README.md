@@ -6,8 +6,10 @@ PrimeSkills 是 [PrimeBuddy](https://github.com/huang-kai/primebuddy) 的技能�
 
 | 技能 | 版本 | 用途 | 使用前需要准备 |
 | --- | --- | --- | --- |
-| [点歌台 diangetai](diangetai/README.md) | 0.4.0 | 播放 QQ 音乐，设置播放时长，可选机器人动作、表情和灯光联动 | T1/Q1 原厂 ROS 环境、QQ 音乐账号 |
-| [易来 yeelight](yeelight/README.md) | 0.3.0 | 打开或关闭指定灯具、房间或全屋灯光 | 已安装并登录的 `yeelight-home` 工具 |
+| [点歌台 diangetai](diangetai/README.md) | [0.4.0](https://github.com/huang-kai/primeskills/releases/tag/diangetai-v0.4.0) | 播放 QQ 音乐，设置播放时长，可选机器人动作、表情和灯光联动 | T1/Q1 原厂 ROS 环境、QQ 音乐账号 |
+| [易来 yeelight](yeelight/README.md) | [0.3.0](https://github.com/huang-kai/primeskills/releases/tag/yeelight-v0.3.0) | 打开或关闭指定灯具、房间或全屋灯光 | 已安装并登录的 `yeelight-home` 工具 |
+
+各技能独立维护版本记录：[点歌台 CHANGELOG](diangetai/CHANGELOG.md)、[易来 CHANGELOG](yeelight/CHANGELOG.md)。
 
 ## 安装技能
 
@@ -129,6 +131,10 @@ python3 src/primebuddy/tools/build_release.py --framework \
 ```
 
 `--skill` 只接受源码目录。直接运行脚本会显示帮助；`--output-dir` 指定输出位置，`--overwrite` 用于重打已有同版本包。发布新版本前，修改相应技能的 `cfg/pkg.yaml`。
+
+每个技能在自己的 `CHANGELOG.md` 中按版本号和日期记录变化，最新版本在前，使用 `Features`、`Fixes`、`Compatibility`、`Upgrade notes` 和 `Known issues` 分类，省略没有内容的类别。独立 Release 使用 `技能名-v版本号` 标签，正文取当前版本记录，并上传对应 RPK 和单独的 `CHANGELOG.md` 附件。
+
+已经随框架发布的技能版本，独立 Release 复用同一份 RPK，以保持它与框架 `release.json` 中的 SHA-256 一致；补充的版本记录在仓库和独立附件中提供。
 
 需要供 `primebuddy update` 联合升级时，还需在框架仓库更新 `release.json` 中的兼容范围和推荐版本，使用 `--release --framework` 并提供两个推荐技能源码。生成的 `release.json` 固定本次框架与技能包的下载地址和 SHA-256；发布说明中的兼容表由同一清单生成，避免手工维护两套版本要求。详细命令见 [框架打包发布说明](https://github.com/huang-kai/primebuddy#打包发布)。
 
