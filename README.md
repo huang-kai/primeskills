@@ -8,8 +8,11 @@ PrimeSkills 是 [PrimeBuddy](https://github.com/huang-kai/primebuddy) 的技能�
 | --- | --- | --- | --- |
 | [点歌台 diangetai](diangetai/README.md) | [0.4.0](https://github.com/huang-kai/primeskills/releases/tag/diangetai-v0.4.0) | 播放 QQ 音乐，设置播放时长，可选机器人动作、表情和灯光联动 | T1/Q1 原厂 ROS 环境、QQ 音乐账号 |
 | [易来 yeelight](yeelight/README.md) | [0.3.0](https://github.com/huang-kai/primeskills/releases/tag/yeelight-v0.3.0) | 打开或关闭指定灯具、房间或全屋灯光 | 已安装并登录的 `yeelight-home` 工具 |
+| [成语接龙 chengyu-chain](chengyu-chain/README.md) | 0.1.0 开发中 | 同音接龙、解释、三级难度和整局独占语音 | 自有云模型配置、T1/Q1 原厂语音环境；新版独占交互宿主 |
 
-各技能独立维护版本记录：[点歌台 CHANGELOG](diangetai/CHANGELOG.md)、[易来 CHANGELOG](yeelight/CHANGELOG.md)。
+成语接龙尚未加入正式发行清单，真机验收待完成。使用 Buddy 调用它时须同步采用本工作区的独占交互支持；已发布的 PrimeBuddy 1.1.0 不能仅凭安装新技能获得该保证。
+
+各技能独立维护版本记录：[点歌台 CHANGELOG](diangetai/CHANGELOG.md)、[易来 CHANGELOG](yeelight/CHANGELOG.md)、[成语接龙 CHANGELOG](chengyu-chain/CHANGELOG.md)。
 
 ## 安装技能
 
@@ -30,7 +33,7 @@ primebuddy skill install ./primebuddy-skills/diangetai
 
 安装易来时，将目录换成 `./primebuddy-skills/yeelight`。本仓库根目录包含多个技能，安装时应传入其中的一个技能目录。
 
-安装器会复制文件并安装声明的 Python 依赖。当前两个技能的配置向导由 Buddy 侧适配调用各自独立的 `configure` 命令；没有该适配时，进入技能目录手动配置。配置后运行 `primebuddy start`，唤醒机器人即可使用。
+安装器会复制文件并安装声明的 Python 依赖。技能的配置向导由 Buddy 侧适配调用各自独立的 `configure` 命令；没有该适配时，进入技能目录手动配置。配置后运行 `primebuddy start`，唤醒机器人即可使用。
 
 详细的配置和使用方法见各技能 README。点歌台开启动作联动后可能产生身体运动，请先阅读其中的联动说明。
 
@@ -104,6 +107,7 @@ bash scripts/test.sh
 ```bash
 python3 diangetai/main.py --check
 python3 yeelight/main.py --check
+python3 chengyu-chain/main.py --check
 ```
 
 新增技能时，先写清触发条件和使用步骤，再实现业务代码。普通命令可直接在终端运行；当前 Buddy 通用执行器通过技能内现有 Python、Bash 或 JavaScript 脚本调用，不执行模型生成的 shell 字符串。依赖、配置、资源和测试按实际需要添加。技能名称保持唯一，`cfg/pkg.yaml` 的 `package_name` 应与 `SKILL.md` 的 `name` 一致。

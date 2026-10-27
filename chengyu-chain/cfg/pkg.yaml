@@ -1,0 +1,6 @@
+user_id: robot_local
+version: 0.1.0
+sdk_version: v1.0.0
+package_name: chengyu-chain
+author: KK
+description: 独立前台语音成语接龙，支持解释、分级、同音接龙和两分钟无回应退出。

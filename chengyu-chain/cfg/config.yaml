@@ -1,0 +1,33 @@
+# 仅为无密钥示例；运行 configure 后保存到应用的私有配置目录。
+provider: qianwen
+api_host: dashscope.aliyuncs.com
+api_key: ''
+models:
+  asr: qwen3-asr-flash
+  llm: qwen-plus
+  tts: qwen-audio-3.0-tts-plus
+voice: longanlingxin
+timeout_seconds: 30
+# 仅支持下面四种可定制播音词；缺项使用默认词，重新配置保存时补齐这四项。
+# 每条最多 400 字，不能为空或含控制字符。占位符只允许下方各事件列出的名称；
+# 不支持属性、索引、转换或格式选项。普通花括号请写成 {{ 和 }}。
+speech:
+  # 答对：successes 为本局已答对次数；target 为目标次数；next_idiom 为机器人下一成语。
+  correct: '接对啦，真棒！本局已接对{successes}次，目标是{target}次。我接“{next_idiom}”。'
+  # 获胜：level 为当前难度；target 为目标答对次数。
+  win: '太棒了！你已经接对{target}次，赢得了{level}挑战！'
+  # 升级邀请：next_level 为下一局难度。
+  win_next: '我们提高难度，挑战{next_level}吧！准备好了就说“继续”。'
+  # 失败：无占位符。
+  lose: '这局没能过关，没关系，下次再试！'
+celebration:
+  enabled: true
+  motion_enabled: false
+  commissioned: false
+  commissioned_for: {series: '', sku: ''}
+  # 三类验收分别记录；CLI --motion on 不替代实体轨迹、停止和归位验收。
+  verified: {T1_biped: false, T1_quad: false, Q1: false}
+  verified_sad: {T1_biped: false, T1_quad: false}
+  verified_stand: {T1_quad: false}
+  # 部分 T1 固件须经过原地踏步模式；须独立验收包含该中间步骤的完整路径。
+  verified_step: {T1_quad: false}

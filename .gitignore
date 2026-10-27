@@ -14,6 +14,8 @@ model.yaml
 credential.json
 # 开发文档仅保留在本地，暂不提交。
 docs/
+# 产品需求仅保留在本地，不随代码提交。
+/prd/
 # 各 skill 的测试音频仅保留在本地。
 /*/tests/**/*.m4a
 /*/tests/**/*.wav
