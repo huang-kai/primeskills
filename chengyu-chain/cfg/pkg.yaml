@@ -4,3 +4,19 @@ sdk_version: v1.0.0
 package_name: chengyu-chain
 author: KK
 description: 独立前台语音成语接龙，支持解释、分级、同音接龙和两分钟无回应退出。
+primebuddy:
+  mode: exclusive
+  cli:
+    configure: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', configure]
+    context: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', context]
+    status: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', status]
+    recover: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', recover]
+    actions:
+      play:
+        command: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', play, --hosted]
+        parameters: {}
+        resources: [microphone, speaker, robot.motion, robot.expression]
+        timeout_seconds: 86400
+        stop_grace_seconds: [25, 2, 2]
+        preflight: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', check-play]
+        description: 正在开始成语接龙

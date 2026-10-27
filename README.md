@@ -10,7 +10,7 @@ PrimeSkills 是 [PrimeBuddy](https://github.com/huang-kai/primebuddy) 的技能�
 | [易来 yeelight](yeelight/README.md) | [0.3.0](https://github.com/huang-kai/primeskills/releases/tag/yeelight-v0.3.0) | 打开或关闭指定灯具、房间或全屋灯光 | 已安装并登录的 `yeelight-home` 工具 |
 | [成语接龙 chengyu-chain](chengyu-chain/README.md) | 0.1.0 开发中 | 同音接龙、解释、三级难度和整局独占语音 | 自有云模型配置、T1/Q1 原厂语音环境；新版独占交互宿主 |
 
-成语接龙尚未加入正式发行清单，真机验收待完成。使用 Buddy 调用它时须同步采用本工作区的独占交互支持；已发布的 PrimeBuddy 1.1.0 不能仅凭安装新技能获得该保证。
+成语接龙尚未加入正式发行清单，真机验收待完成。使用 Buddy 调用它时须采用支持技能包 `primebuddy.mode` / `primebuddy.cli` 的源码或后续正式版本；已发布的 PrimeBuddy 1.1.0 不能仅凭安装新技能获得该保证。
 
 各技能独立维护版本记录：[点歌台 CHANGELOG](diangetai/CHANGELOG.md)、[易来 CHANGELOG](yeelight/CHANGELOG.md)、[成语接龙 CHANGELOG](chengyu-chain/CHANGELOG.md)。
 
@@ -82,7 +82,7 @@ PrimeBuddy 1.1.0 接受点歌台 `>=0.4.0, <0.5.0`、易来 `>=0.3.0, <0.4.0`，
 
 框架先读取 `name` 和 `description`，选中后读取完整正文，再按需读取参考文件。摘要保持简短，正文写清适用场景、前置条件、操作步骤、示例、结果校验和失败处理。模板中的标题是写作建议，不是固定协议。
 
-现有点歌台和易来还使用 `main.py`、`src/`、`cfg/`、`tests/` 等目录，`cfg/pkg.yaml` 只保存包信息。普通技能无需实现 Buddy 专属函数；需要代码时可提供独立 CLI。宿主需要具名工具、资源锁或恢复检查时，在自己的可选适配配置中映射现有命令。完整教程见 [开发一个 skill](https://github.com/huang-kai/primebuddy#开发一个-skill)。
+现有点歌台和易来还使用 `main.py`、`src/`、`cfg/`、`tests/` 等目录，`cfg/pkg.yaml` 保存包信息。普通技能无需实现 Buddy 专属函数；需要代码时可提供独立 CLI。需要具名工具、资源锁或恢复检查时，可在包内声明 `primebuddy.cli`，或使用宿主的可选适配配置。成语接龙在包内声明 `primebuddy.mode: exclusive`，普通技能默认 `task`。完整教程见 [开发一个 skill](https://github.com/huang-kai/primebuddy#开发一个-skill)。
 
 ## 开发与测试
 

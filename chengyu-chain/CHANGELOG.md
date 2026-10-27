@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- 在技能自己的 `cfg/pkg.yaml` 声明 `primebuddy.mode: exclusive` 及 CLI 命令；Buddy 根据包内配置完成整局语音交接，无需新增技能名专用映射。需要支持该配置的 Buddy 源码或后续正式版本。
+
 ## 0.1.0 — 2026-10-24
 
 ### Features

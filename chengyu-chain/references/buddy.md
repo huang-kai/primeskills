@@ -1,8 +1,8 @@
 # Buddy 的整局交互交接
 
-使用包含本次 `interaction: exclusive` 实现的 PrimeBuddy 源码或后续正式版本。旧版通用脚本执行不提供这项保证，不能当作本应用的语音宿主。
+使用支持技能包 `primebuddy.mode` 和 `primebuddy.cli` 的 PrimeBuddy 源码或后续正式版本。已发布的 PrimeBuddy 1.1.0 不提供这项能力，不能当作本应用的语音宿主。
 
-宿主的 `cfg/skill-adapters.example.yaml` 映射 configure/context/status/recover/check-play，以及 `play --hosted`。宿主把游戏自己的 config/data/runtime 路径传给 CLI，整个游戏只占一个受监督的前台进程。
+本技能在自己的 `cfg/pkg.yaml` 声明 `primebuddy.mode: exclusive`，并由 `primebuddy.cli` 映射 configure/context/status/recover/check-play，以及 `play --hosted`。Buddy 通用加载器读取这份声明，不需要按技能名增加内置适配。宿主把游戏自己的 config/data/runtime 路径传给 CLI，整个游戏只占一个受监督的前台进程。宿主私有配置可以覆盖命令，但不能取消包内声明的独占模式；缺少状态或恢复命令时阻止启动。
 
 `play` 声明 microphone、speaker、robot.motion、robot.expression 资源，并且是独占交互动作，只允许单任务计划。Buddy 完成自己的启动应答后静音、清理旧事件再启动应用；游戏未返回时不识别游戏答案或分发其他技能。正常产品期限是应用的 120 秒无回应，宿主 86400 秒仅为失控进程硬上限。
 

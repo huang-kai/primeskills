@@ -1,7 +1,7 @@
 ---
 name: chengyu-chain
 description: 陪小朋友通过语音玩成语接龙，同音不分声调和前后鼻音，支持分局输赢、解释和初中高难度。用户说“玩成语接龙”“开始成语接龙”时使用；应用占用整局语音，退出后才能使用其他技能。
-compatibility: 需要 T1/Q1 原厂 ROS 语音与媒体环境，以及应用自己保存的云模型配置。Buddy 调用需支持 interaction exclusive 的宿主适配。
+compatibility: 需要 T1/Q1 原厂 ROS 语音与媒体环境，以及应用自己保存的云模型配置。Buddy 调用需支持技能包 primebuddy.mode 与 primebuddy.cli 声明。
 ---
 
 # 成语接龙
@@ -10,7 +10,7 @@ compatibility: 需要 T1/Q1 原厂 ROS 语音与媒体环境，以及应用自�
 
 ## 调用
 
-在 PrimeBuddy 中先读取 [宿主调用说明](references/buddy.md)，使用配置好的 `play` 动作。一次请求只启动这一个应用，不与其他任务合并或并行执行。
+在 PrimeBuddy 中先读取 [宿主调用说明](references/buddy.md)，使用包内 `cfg/pkg.yaml` 声明的独占 `play` 动作。一次请求只启动这一个应用，不与其他任务合并或并行执行。
 
 等待整个前台游戏进程结束。启动成功、模型返回、原厂进入 IDLE，都不代表游戏已经结束。游戏过程中不再调用通用规划器代替应用接龙，也不启动点歌、灯控等技能。
 
