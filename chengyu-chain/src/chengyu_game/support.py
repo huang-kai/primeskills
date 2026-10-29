@@ -20,6 +20,10 @@ class AudioError(SetupError):
     pass
 
 
+class PlaybackInterrupted(AudioError):
+    """自有音频已确认停止，但未完整播完；可由交互会话继续等待回答。"""
+
+
 class Cancelled(RuntimeError):
     pass
 

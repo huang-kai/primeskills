@@ -15,7 +15,7 @@ from chengyu_game.support import AudioError, Cancelled, SetupError, read_json, w
 
 def request():
     return NS(header=NS(header=NS()), request=NS(header=NS()), command=NS(action=NS()),
-              motion=NS(), area=NS(), source='', type=0, model='', resource='', interrupt=False,
+              form_state=NS(UNKNOWN=0, current_form=0), motion=NS(), area=NS(), source='', type=0, model='', resource='', interrupt=False,
               operation=0, MIMIC_QY=1, EXECUTION=2)
 
 
@@ -165,6 +165,22 @@ class FakeRobot:
 
 
 class CelebrationTests(unittest.TestCase):
+    def test_q1_old_resource_query_schema_fails_before_rpc(self):
+        effects = self.build()
+        effects.device = Device('Q1', 'Q1_Explorer_Edition', '0')
+        effects.types['GetMcMotions'] = NS(Request=lambda: NS(header=NS()))
+        with self.assertRaisesRegex(AudioError, 'form_state'):
+            effects._request('GetMcMotions')
+        self.assertEqual(self.robot.writes, [])
+
+    def test_q1_resource_query_requests_all_forms(self):
+        effects = self.build()
+        effects.device = Device('Q1', 'Q1_Explorer_Edition', '0')
+        effects.types['GetMcMotions'] = NS(Request=request)
+        query = effects._request('GetMcMotions')
+        self.assertEqual(query.form_state.current_form, 0)
+        self.assertEqual(self.robot.writes, [])
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

@@ -4,3 +4,22 @@ sdk_version: v1.0.0
 package_name: yeelight
 author: PrimeBuddy
 description: 通过本地 stdio MCP 打开或关闭灯具、房间或全屋灯光。
+primebuddy:
+  version: 1
+  mode: task
+  cli:
+    configure: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', configure]
+    context: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', context]
+    actions:
+      set_power:
+        command: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', set-power, --power, '{power}', '--scope={scope}', '--room={room}', '--device={device}']
+        parameters:
+          power: {type: boolean}
+          scope: {type: string, enum: [device, room, home]}
+          room: {type: string}
+          device: {type: string}
+        resources: [yeelight.home]
+        timeout_seconds: 60
+        preflight: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', check-power, --power, '{power}', '--scope={scope}', '--room={room}', '--device={device}']
+        confirmation: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', preview-power, --power, '{power}', '--scope={scope}', '--room={room}', '--device={device}', '--text={request_text}']
+        description: 正在控制灯光

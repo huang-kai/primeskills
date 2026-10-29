@@ -5,6 +5,7 @@ package_name: chengyu-chain
 author: KK
 description: 独立前台语音成语接龙，支持解释、分级、同音接龙和两分钟无回应退出。
 primebuddy:
+  version: 1
   mode: exclusive
   cli:
     configure: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', configure]

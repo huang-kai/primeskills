@@ -4,3 +4,22 @@ sdk_version: v1.0.0
 package_name: diangetai
 author: PrimeBuddy
 description: 按配置时长播放歌曲，可联动T1/Q1 当前姿态的舞蹈、表情和灯光。
+primebuddy:
+  version: 1
+  mode: task
+  cli:
+    configure: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', configure]
+    context: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', context]
+    status: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', status]
+    recover: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', recover]
+    actions:
+      play:
+        command: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', play, '--artist={artist}', '--song={song}']
+        parameters:
+          artist: {type: string, default: ''}
+          song: {type: string, default: ''}
+        resources: [speaker.music, robot.motion, robot.expression, robot.lights]
+        timeout_seconds: 900
+        stop_grace_seconds: [25, 2, 2]
+        preflight: [main.py, --config, '{config}', --data-dir, '{data}', --runtime-dir, '{runtime}', check-play, '--artist={artist}', '--song={song}']
+        description: 正在播放音乐：{artist} {song}

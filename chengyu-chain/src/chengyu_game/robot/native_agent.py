@@ -91,8 +91,14 @@ def agent_mode(runtime, value=None):
     if value is not None:
         command += ' ' + shlex.quote(value)
     result = subprocess.run(host_command(runtime, command, ros=True),
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=75)
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
     if result.returncode:
+        try:
+            detail = json.loads(result.stdout).get('error', {})
+        except (ValueError, TypeError):
+            detail = {}
+        logger.error('AGENT_MODE_RPC_ERROR operation=%s service=%s reason=%s',
+                     value or 'read', detail.get('service'), detail.get('reason'))
         raise AudioError('原厂 Agent 模式调用失败；请核对恢复记录。')
     try:
         return json.loads(result.stdout)['mode']

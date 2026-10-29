@@ -176,6 +176,43 @@ class VoiceTests(unittest.TestCase):
         self.sentence()
         self.assertEqual(self.voice.poll()[0], 'utterance')
 
+    def test_joined_wake_and_answer_is_discarded_until_a_fresh_listening_sentence(self):
+        self.listen()
+        deadline = self.voice.deadline
+        self.state(0)
+        self.at(30)
+        self.state(3)
+        self.voice.on_audio(self.packet(1, size=6400))
+        self.at(32)
+        self.state(1)
+        # 唤醒应答期间开始的“一马当先”只有 END 落在 LISTENING，也必须丢弃整句。
+        self.voice.on_audio(self.packet(3, size=6400))
+        self.assertIsNone(self.voice.poll())
+        self.assertEqual(self.voice.deadline, deadline)
+        self.sentence()
+        self.assertEqual(self.voice.poll()[0], 'utterance')
+
+    def test_delayed_speaking_audio_is_not_accepted_after_listening_transition(self):
+        self.listen()
+        self.state(3)
+        speaking_stamp = self.clock.now().nanoseconds
+        self.at(2)
+        self.state(1)
+        self.sentence(stamp=speaking_stamp)
+        self.assertIsNone(self.voice.poll())
+        self.sentence()
+        self.assertEqual(self.voice.poll()[0], 'utterance')
+
+    def test_repeated_listening_status_keeps_current_sentence_and_deadline(self):
+        self.listen()
+        boundary, deadline = self.voice.opened_at_ns, self.voice.deadline
+        self.voice.on_audio(self.packet(1))
+        self.clock.advance(.1)
+        self.state(1)
+        self.voice.on_audio(self.packet(3))
+        self.assertEqual(self.voice.poll()[0], 'utterance')
+        self.assertEqual((self.voice.opened_at_ns, self.voice.deadline), (boundary, deadline))
+
     def test_stale_packets_wrong_stream_and_missing_begin_are_discarded(self):
         self.listen()
         self.sentence(stamp=self.voice.opened_at_ns - 1)

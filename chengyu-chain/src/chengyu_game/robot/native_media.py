@@ -9,7 +9,7 @@ import io
 import tempfile
 import wave
 
-from ..support import AudioError, measure, read_json, write_json
+from ..support import AudioError, PlaybackInterrupted, measure, read_json, write_json
 from .device import audio_host
 
 logger = logging.getLogger(__name__)
@@ -212,9 +212,14 @@ class NativeMedia:
                 self.submitted = False
                 self.clear_record()
             if state != getattr(self, 'end_status', 3) or self.started is None or at - self.started < self.duration - max(1, self.duration * .03):
-                logger.error('MEDIA_FAILURE %s', {'states': [s for _, s in self.events],
+                interrupted = state in confirmed and self.started is not None
+                details = {'states': [s for _, s in self.events],
                       'expected': round(self.duration, 3),
-                      'elapsed': None if self.started is None else round(at - self.started, 3)})
+                      'elapsed': None if self.started is None else round(at - self.started, 3)}
+                if interrupted:
+                    logger.warning('GAME_MEDIA_INTERRUPTED %s', details)
+                    raise PlaybackInterrupted('原厂音频已被打断并确认停止。')
+                logger.error('MEDIA_FAILURE %s', details)
                 raise AudioError('原厂音频提前停止或播放失败。')
             return True
         if self.started is None and now - self.requested_at > 12:

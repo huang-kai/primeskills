@@ -8,7 +8,7 @@ import wave
 from dataclasses import replace
 
 from .game import Game
-from .support import AudioError, Cancelled, measure
+from .support import AudioError, PlaybackInterrupted, Cancelled, measure
 from .providers import ProviderError
 
 TIMEOUT_TEXT = '两分钟没有听到你的回答，成语接龙先结束啦。下次再一起玩吧！'
@@ -147,7 +147,15 @@ class Session:
         if self.closed:
             raise AudioError('会话已经关闭，未播报迟到结果。')
         options = {'before_start': self.check_inactivity} if inactivity_limit else {}
-        self.media.play(audio, on_finished=(lambda: self.listen(reset_question)) if listen else None, **options)
+        try:
+            self.media.play(audio, on_finished=(lambda: self.listen(reset_question)) if listen else None, **options)
+        except PlaybackInterrupted:
+            if not listen or ending:
+                raise
+            # 游戏状态已提交；唤醒应答抢占播报时保留题目和得分，不重放判题/庆祝。
+            # VoiceInput 仍只接受原厂 LISTENING 下的新 VAD；打断本身不延长空闲期限。
+            logger.info('GAME_PLAYBACK_INTERRUPTED resume=listening')
+            self.listen(reset_question)
 
     def deliver(self, reply, *, timed=False):
         if timed:

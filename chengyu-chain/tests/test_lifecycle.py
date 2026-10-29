@@ -13,10 +13,36 @@ from chengyu_game.robot.native_media import NativeMedia
 from chengyu_game.robot.transport import Robot
 from chengyu_game.session import Session, InactivityExpired
 from chengyu_game.simulation import synthetic_wav
-from chengyu_game.support import AudioError, Cancelled, read_json
+from chengyu_game.support import AudioError, PlaybackInterrupted, Cancelled, read_json, write_json
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_short_playback_is_recoverable_only_with_confirmed_stop(self):
+        for terminal in (3, 4, 5, 7):
+            media = NativeMedia.__new__(NativeMedia)
+            media.events = [(10.0, 2), (10.509, terminal)]
+            media.duration, media.requested_at = 9.84, 9.9
+            media.submitted = True
+            media.confirmed_terminal = {3, 4}
+            media.end_status = 3
+            media.trace_id = 'chengyu_fixture'
+            with self.subTest(terminal=terminal), tempfile.TemporaryDirectory() as directory:
+                media.record = Path(directory) / 'media.json'
+                write_json(media.record, {'trace_id': media.trace_id})
+                with self.assertRaises(AudioError) as raised:
+                    media.poll(now=11)
+                self.assertEqual(isinstance(raised.exception, PlaybackInterrupted), terminal in (3, 4))
+                self.assertEqual(media.submitted, terminal not in (3, 4))
+                self.assertEqual(media.record.exists(), terminal not in (3, 4))
+
+    def test_missing_play_start_is_not_treated_as_recoverable_interruption(self):
+        media = NativeMedia.__new__(NativeMedia)
+        media.events, media.duration, media.requested_at = [(10.509, 3)], 9.84, 9.9
+        media.submitted = True
+        with self.assertRaises(AudioError) as raised:
+            media.poll(now=11)
+        self.assertNotIsInstance(raised.exception, PlaybackInterrupted)
+
     def test_idle_expiry_while_waiting_for_media_service_never_submits_or_keeps_record(self):
         now = [119.0]
         media = NativeMedia.__new__(NativeMedia)

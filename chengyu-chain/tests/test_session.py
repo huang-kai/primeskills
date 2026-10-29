@@ -12,10 +12,68 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from chengyu_game.providers import ProviderNetworkError
 from chengyu_game.session import Session, TIMEOUT_TEXT, synthesize
 from chengyu_game.simulation import Fixture, FixtureModels, simulate, synthetic_wav
-from chengyu_game.support import AudioError, Cancelled
+from chengyu_game.support import AudioError, PlaybackInterrupted, Cancelled
 
 
 class SessionTests(unittest.TestCase):
+    def test_interrupted_reply_keeps_progress_and_accepts_next_answer(self):
+        with Fixture([{'text': '一马当先'}, {'text': '人山人海'}, {'text': '不玩了'}]) as fixture:
+            play, attempts, snapshots = fixture.media.play, [], []
+            def interrupted(data, **kwargs):
+                attempts.append(data)
+                if len(attempts) == 2:
+                    snapshots.append(fixture.session.game.snapshot())
+                    fixture.robot.state(3)  # 原厂唤醒应答仍在播放，不能接收这段音频。
+                    def finish_wakeup(robot):
+                        robot.on_spin = None
+                        robot.state(1)
+                    fixture.robot.on_spin = finish_wakeup
+                    raise PlaybackInterrupted('唤醒应答抢占')
+                return play(data, **kwargs)
+            fixture.media.play = interrupted
+            result = fixture.session.run()
+            self.assertEqual(result['reason'], 'user_exit')
+            self.assertEqual(snapshots[0]['total_successes'], 1)
+            self.assertEqual(snapshots[0]['last_idiom'], '先声夺人')
+            self.assertEqual(fixture.session.game.snapshot()['total_successes'], 2)
+            self.assertEqual(fixture.effects.count, 2)
+            self.assertEqual(len([r for r in fixture.models.requests if r['operation'] == 'start']), 1)
+            self.assertEqual(len(attempts), 4)
+
+    def test_interrupted_reminders_do_not_extend_inactivity_or_change_score(self):
+        with Fixture() as fixture:
+            play, attempts = fixture.media.play, []
+            def interrupted(data, **kwargs):
+                attempts.append(data)
+                if len(attempts) > 1 and kwargs.get('on_finished'):
+                    raise PlaybackInterrupted('唤醒应答抢占')
+                return play(data, **kwargs)
+            fixture.media.play = interrupted
+            result = fixture.session.run()
+            self.assertEqual(result['reason'], 'inactivity')
+            self.assertEqual(len({window['inactivity_deadline'] for window in fixture.robot.windows}), 1)
+            self.assertEqual(fixture.session.game.snapshot()['total_successes'], 0)
+
+    def test_unconfirmed_audio_failure_and_cancellation_still_end_game(self):
+        for error in (AudioError('音频停止未确认'), Cancelled('用户退出')):
+            with self.subTest(error=type(error).__name__), Fixture() as fixture:
+                def fail(*args, **kwargs):
+                    raise error
+                fixture.media.play = fail
+                with self.assertRaises(type(error)):
+                    fixture.session.run()
+                self.assertTrue(fixture.session.closed)
+                self.assertFalse(fixture.voice.active)
+
+    def test_interrupted_notice_without_answer_window_is_not_swallowed(self):
+        with Fixture() as fixture:
+            def fail(*args, **kwargs):
+                raise PlaybackInterrupted('已停止')
+            fixture.media.play = fail
+            with self.assertRaises(PlaybackInterrupted):
+                fixture.session.say('即将执行动作')
+            self.assertFalse(fixture.voice.active)
+
     def test_configured_correct_speech_reaches_game_and_playback(self):
         with Fixture([{'text': '一马当先'}, {'text': '不玩了'}]) as fixture:
             fixture.session = Session(fixture.models, fixture.robot, fixture.voice, fixture.media, fixture.effects,

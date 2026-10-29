@@ -129,6 +129,11 @@ class Celebration:
 
     def _request(self, name):
         request = self.types[name].Request()
+        if name == 'GetMcMotions' and self.device.series == 'Q1':
+            if not hasattr(request, 'form_state') or getattr(request.form_state, 'UNKNOWN', None) != 0:
+                raise AudioError('Q1 GetMcMotions 接口不匹配：缺少 form_state；请成套加载当前原厂接口库。')
+            # UNKNOWN=0 查询全部形态；包括默认复位及当前机型的预设资源。
+            request.form_state.current_form = request.form_state.UNKNOWN
         header = request.request.header if name in ('GetMcAction', 'GetMcPresetMotionState', 'GetJointPowerState') else request.header
         header.stamp = self.robot.node.get_clock().now().to_msg()
         return request

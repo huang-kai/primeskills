@@ -1,4 +1,4 @@
-"""完整 VAD 收音与游戏等待期限；原厂 IDLE 不结束应用或重置期限。"""
+"""只接收 LISTENING 窗内完整 VAD；原厂应答期间丢弃语音，IDLE 不结束应用。"""
 import time
 import logging
 
@@ -65,6 +65,10 @@ class VoiceInput:
         if self.state != 1:
             # 唤醒应答、机器人发声、IDLE 均不能拼接成用户的下一句话。
             self.buffer = None
+        elif previous != 1:
+            # 唤醒应答结束后只接受新产生的语音；晚到的 SPEAKING 音频也不能补成答案。
+            # 状态切换只更新音频边界，不延长游戏自己的等待期限。
+            self.opened_at_ns = max(self.opened_at_ns, self.robot.node.get_clock().now().nanoseconds)
 
     def on_audio(self, message):
         if self.closed or not self.active or self.state != 1 or int(message.stream_id) != 0:
