@@ -1,6 +1,6 @@
 # 易来灯控 yeelight
 
-易来灯控通过本地 `yeelight-home` MCP 接口打开或关闭灯具、房间或全屋灯光。当前包版本 **0.3.0**，业务和命令行入口均可独立运行，不导入 PrimeBuddy。
+易来灯控通过本地 `yeelight-home` MCP 接口打开或关闭灯具、房间或全屋灯光。当前准备包版本 **0.3.1**，业务和命令行入口均可独立运行，不导入 PrimeBuddy。
 
 当前只接入开关，不支持亮度、色温、渐变、闪烁、循环变色或场景。
 
@@ -71,10 +71,10 @@ SIGINT、SIGTERM、SIGHUP 使业务停止继续等待，关闭自身 MCP 进程�
 
 ## 接入 PrimeBuddy
 
-本版本配套 PrimeBuddy 1.1.0。框架声明的易来兼容范围为 `>=0.3.0, <0.4.0`，推荐 `0.3.0`；后续以目标框架的 `release.json` 为准。首次安装技能：
+本版本配套 PrimeBuddy 1.2.0。框架声明的易来兼容范围为 `>=0.3.0, <0.4.0`，推荐 `0.3.1`；后续以目标框架的 `release.json` 为准。首次安装技能：
 
 ```bash
-primebuddy skill install ./yeelight-0.3.0.rpk
+primebuddy skill install ./yeelight-0.3.1.rpk
 primebuddy skill configure yeelight
 ```
 

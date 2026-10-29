@@ -35,12 +35,8 @@ def audio_host():
 
 def host_command(runtime, command, *, ros=False):
     if ros:
-        setups = ['/robot/software/app_proxy/bin/setup.bash', '/robot/software/housekeeper/bin/setup.bash']
-        if detect_device().series == 'Q1':
-            setups.reverse()
-        command = ('source /robot/etc/basic_env >/dev/null 2>&1 && '
-                   'for setup in ' + ' '.join(setups) + '; '
-                   'do if test -f "$setup"; then source "$setup" >/dev/null 2>&1; break; fi; done; ' + command)
+        from .native_sdk import shell_environment
+        command = shell_environment() + 'if [ "$?" -ne 0 ]; then exit 1; fi; ' + command
     if audio_host() == 'local':
         return ['bash', '-c', command]
     from .transport import ssh_options

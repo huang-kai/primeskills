@@ -4,13 +4,14 @@ import logging
 import random
 import time
 
-from ..support import AudioError
+from ..support import AudioError, read_json, write_json
+from .motion_profiles import T1_PROFILES, validate_t1_resource
 
 logger = logging.getLogger('primebuddy.skills.diangetai.music_effects')
 
 # 来自当前 T1 部署接口的枚举；动作、运行状态和灯光模式不是同一套编号。
 QUAD_STAND_ACTION = 101
-QUAD_REST_ACTIONS = {1, 110}  # 被动模式（还须确认四足形态）、四足趴下。
+QUAD_REST_ACTIONS = {110}  # PASSIVE=1 不能证明趴卧；只自动准备明确的四足趴下模式。
 QUAD_LOCOMOTION_ACTION = 102
 QUAD_MIMIC_ACTION = 119
 BIPED_STAND_ACTION = 201
@@ -30,22 +31,25 @@ class DanceController:
     motion_name = 'QUAD_MIMIC'
     standing_actions = {QUAD_STAND_ACTION, QUAD_LOCOMOTION_ACTION}
     posture_name = '四足'
+    expected_form = 1
 
     def select_posture(self, action):
         if action not in BIPED_STANDING_ACTIONS | {QUAD_STAND_ACTION, QUAD_LOCOMOTION_ACTION} | QUAD_REST_ACTIONS:
             raise AudioError('当前模式不支持点歌起身或舞蹈；仅接受四足趴卧或稳定站立。')
-        biped = action in BIPED_STANDING_ACTIONS
-        self.posture_name = '双足' if biped else '四足'
-        self.standing_actions = BIPED_STANDING_ACTIONS if biped else {QUAD_STAND_ACTION, QUAD_LOCOMOTION_ACTION}
-        self.stand_action = QUAD_STAND_ACTION if action in QUAD_REST_ACTIONS else action
-        self.dance_action = BIPED_MIMIC_ACTION if biped else QUAD_MIMIC_ACTION
-        self.motion_name = 'BIPED_MIMIC_POPPING' if biped else 'QUAD_MIMIC'
+        profile = T1_PROFILES['biped' if action in BIPED_STANDING_ACTIONS else 'quad']
+        self.posture_name = profile['label']
+        self.expected_form = profile['form']
+        self.standing_actions = profile['standing']
+        self.stand_action = profile.get('return_action', QUAD_STAND_ACTION if action in QUAD_REST_ACTIONS else action)
+        self.dance_action, self.motion_name = profile['dance_action'], profile['motion']
 
     def require_resource(self):
         motions = self.rpc('GetMcMotions', self.request('GetMcMotions')).motion
         candidate = next((m for m in motions if m.tag == self.motion_name), None)
-        if candidate is None or candidate.intr_info.intr_type.value != 1:
-            raise AudioError('未取得可自由打断的 ' + self.motion_name + ' 资源。')
+        try:
+            validate_t1_resource(candidate, self.motion_name)
+        except ValueError as error:
+            raise AudioError(str(error)) from None
 
     action_descriptions = {101: 'QUADRUPED_STAND_DEFAULT', 102: 'QUADRUPED_LOCOMOTION_DEFAULT',
                            201: 'BIPED_STAND_DEFAULT', 300: 'BIPED_LOCOMOTION_WBC'}
@@ -62,6 +66,9 @@ class DanceController:
                         for name, t in self.types.items()}
         self.motion_state = self.light_state = None
         self.motion_received_at = self.light_received_at = 0
+        self.t1_task_id = None
+        self.t1_pending = False
+        self.t1_submitted_at = 0
         self.subscriptions = [robot.node.create_subscription(McCommonState, '/aima/mc/common/state', self.on_mc, robot.qos),
                               robot.node.create_subscription(RGBState, '/aima/hal/rgb/state', self.on_rgb, robot.qos)]
 
@@ -80,6 +87,15 @@ class DanceController:
             self.robot.spin(cancellable=not cleanup)
             if time.monotonic() >= deadline:
                 raise AudioError(name + ' 服务未就绪。')
+        writing_motion = name in ('SetMcAction', 'SetMcMotion') and not isinstance(self, Q1MusicEffects)
+        if writing_motion:
+            self.robot.spin(0, cancellable=not cleanup)
+            self._t1_motion_guard(moving=cleanup)
+            if self.motion_state.action_info.switch_ready is not True:
+                raise AudioError('T1 运控未允许切换，未发送动作。')
+            self.t1_pending = True
+            self.t1_submitted_at = time.monotonic()
+            self._save_t1_task()
         future = client.call_async(request)
         while not future.done():
             self.robot.spin(cancellable=not cleanup)
@@ -94,11 +110,56 @@ class DanceController:
         else:
             header = res.response.header
         if header.code != 0:
+            if writing_motion:
+                self.t1_pending = False
+                self._save_t1_task()
             raise AudioError(name + ' 拒绝请求，code=' + str(header.code))
+        if writing_motion:
+            response = res.response
+            if (type(response.task_id) is not int or response.task_id <= 0
+                    or response.state.value not in (1, 400) or response.state.reason != 0):
+                raise AudioError('T1 动作未返回有效任务，记录保留，未重复控制。')
+            self.t1_task_id, self.t1_pending = response.task_id, False
+            self._save_t1_task()
         return res
+
+    def _save_t1_task(self):
+        if not hasattr(self, 'record') or not self.record.is_file():
+            raise AudioError('T1 动作缺少恢复记录，未继续控制。')
+        saved = read_json(self.record)
+        saved['t1_task'] = {'id': self.t1_task_id, 'pending': self.t1_pending,
+                            'submitted_at': self.t1_submitted_at, 'form': self.expected_form}
+        write_json(self.record, saved)
+
+    def _t1_motion_guard(self, *, moving=False):
+        state = self.motion_state
+        if self.t1_pending:
+            raise AudioError('T1 动作结果未知，记录保留；未重复或覆盖控制。')
+        if (state is None or time.monotonic() - self.motion_received_at > 2
+                or state.is_fallen is not False or type(state.is_moving) is not bool
+                or not moving and state.is_moving
+                or state.form_state.current_form != self.expected_form
+                or state.lift_state.is_lifted is not False or state.held_state.is_held is not False):
+            raise AudioError('T1 姿态、形态或反馈未确认安全，未继续动作。')
+        current = getattr(getattr(state, 'task_info', None), 'task_id', None)
+        if type(current) is not int or current < 0:
+            raise AudioError('T1 缺少任务归属，未继续动作。')
+        if self.t1_task_id is not None and (current != self.t1_task_id
+                or self.motion_received_at < self.t1_submitted_at):
+            raise AudioError('T1 自有任务未确认或已被其他任务接管，未覆盖动作。')
+
+    def _t1_owner_observed(self):
+        if self.t1_pending:
+            return False
+        return (self.t1_task_id is not None and self.motion_received_at >= self.t1_submitted_at
+                and getattr(getattr(self.motion_state, 'task_info', None), 'task_id', None) == self.t1_task_id)
 
     def request(self, name):
         req = self.types[name].Request()
+        if name == 'GetMcMotions':
+            if not hasattr(req, 'form_state') or getattr(req.form_state, 'UNKNOWN', None) != 0:
+                raise AudioError('GetMcMotions 缺少 form_state；须加载机载标准 aimdk_msgs。')
+            req.form_state.current_form = 0 if isinstance(self, Q1MusicEffects) else self.expected_form
         header = req.request.header if name in {'GetMcAction', 'LedStripCommand'} else req.header
         header.stamp = self.robot.node.get_clock().now().to_msg()
         return req
@@ -167,7 +228,8 @@ class DanceController:
         deadline = time.monotonic() + 8
         while True:
             info = self.action()
-            if info.current_action.value == self.dance_action and info.status.value == ACTION_RUNNING:
+            if (info.current_action.value == self.dance_action and info.status.value == ACTION_RUNNING
+                    and (not hasattr(self, 't1_pending') or self._t1_owner_observed())):
                 logger.info('DANCE_MOTION_MODE_CONFIRMED %s', self.motion_name)
                 return
             if time.monotonic() >= deadline:
@@ -183,6 +245,8 @@ class DanceController:
 
     def restore_stand(self):
         # 只从本轮形态的站立或舞蹈状态恢复，防止覆盖外部变形或其他动作。
+        if hasattr(self, 't1_pending'):
+            self._t1_motion_guard(moving=True)
         info = self.action(cleanup=True)
         if (self.motion_state is None or time.monotonic() - self.motion_received_at > 2
                 or self.motion_state.is_fallen):
@@ -204,6 +268,7 @@ class DanceController:
                     and self.motion_state is not None and time.monotonic() - self.motion_received_at < 2
                     and self.motion_received_at >= after
                     and self.motion_state.action_info.current_action.value == self.stand_action
+                    and (not hasattr(self, 't1_pending') or self._t1_owner_observed())
                     and not self.motion_state.is_moving and not self.motion_state.is_fallen):
                 logger.info('DANCE_STAND_RESTORED %s %s', self.posture_name, self.stand_action)
                 return

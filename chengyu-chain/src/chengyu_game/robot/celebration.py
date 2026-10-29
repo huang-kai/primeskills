@@ -11,31 +11,8 @@ from .motion_rules import load_quad_route, valid_quad_route
 from .transport import RequestRejected
 
 
-# 表情编号、运控模式和预设动作使用不同接口，不能互换。
-FACES = {'T1': {'happy': 90, 'sad': 21, 'reset': 13},
-         'Q1': {'happy': 3003, 'sad': 3018, 'reset': 3001}}
-# Q1 难过 3018 已在当前固件 emotions.yaml 核实，旧 SDK 的表情表不完整。
-OUTCOMES = {'success': 'happy', 'win': 'happy', 'failure': 'sad', 'lose': 'sad'}
-CHARGING_MASK = 1 | (1 << 25) | (1 << 26)
-PROFILES = {
-    'T1_biped': {'initial': {201, 300}, 'mode': 300, 'preset': 2002, 'form': 2,
-                 'enum': 'BOTH_HANDS_ACTION_HAPPY'},
-    'T1_quad': {'initial': {101, 102}, 'mode': 114, 'form': 1,
-                'enum': 'QUADRUPED_LOCOMOTION_PLEASURE'},
-    'Q1': {'initial': {1002}, 'mode': 1005, 'preset': 3005,
-           'enum': 'Q_SHOW_HAPPINESS'},
-}
-SAD_PROFILES = {
-    'T1_biped': {'initial': {201, 300}, 'mode': 300, 'preset': 2033, 'form': 2,
-                 'enum': 'HUMANOID_SAD'},
-    'T1_quad': {'initial': {101, 102}, 'mode': 119, 'form': 1,
-                'enum': 'QUADRUPED_MIMIC', 'motion': 'QUAD_MIMIC_SAD'},
-}
-ACTION_NAMES = {101: 'QUADRUPED_STAND_DEFAULT', 102: 'QUADRUPED_LOCOMOTION_DEFAULT',
-                121: 'QUADRUPED_LOCOMOTION_STEP',
-                114: 'QUADRUPED_LOCOMOTION_PLEASURE', 201: 'BIPED_STAND_DEFAULT',
-                300: 'BIPED_LOCOMOTION_WBC', 1002: 'BIPED_WALK_RUN',
-                1005: 'BIPED_WHOLE_BODY_CTRL'}
+from .motion_profiles import (FACES, OUTCOMES, CHARGING_MASK, PROFILES, SAD_PROFILES,
+                              ACTION_NAMES, validate_preset_resources, validate_t1_mimic_resource)
 
 
 class Celebration:
@@ -127,13 +104,13 @@ class Celebration:
         # 不保留整帧：BMS 同时包含序列号等与动作保护无关的信息。
         self.battery_status, self.battery_received_at = getattr(message, 'status', None), time.monotonic()
 
-    def _request(self, name):
+    def _request(self, name, *, form=0):
         request = self.types[name].Request()
-        if name == 'GetMcMotions' and self.device.series == 'Q1':
+        if name == 'GetMcMotions':
             if not hasattr(request, 'form_state') or getattr(request.form_state, 'UNKNOWN', None) != 0:
-                raise AudioError('Q1 GetMcMotions 接口不匹配：缺少 form_state；请成套加载当前原厂接口库。')
+                raise AudioError('GetMcMotions 接口不匹配：缺少 form_state；请成套加载当前原厂接口库。')
             # UNKNOWN=0 查询全部形态；包括默认复位及当前机型的预设资源。
-            request.form_state.current_form = request.form_state.UNKNOWN
+            request.form_state.current_form = form
         header = request.request.header if name in ('GetMcAction', 'GetMcPresetMotionState', 'GetJointPowerState') else request.header
         header.stamp = self.robot.node.get_clock().now().to_msg()
         return request
@@ -569,29 +546,20 @@ class Celebration:
         from aimdk_msgs.msg import McAction, McPresetMotion
         enum = McPresetMotion if 'preset' in profile else McAction
         expected = profile.get('preset', profile['mode'])
-        if getattr(enum, profile['enum'], None) != expected:
+        value = getattr(enum, profile['enum'], None)
+        if value != expected and not (value is None and profile.get('optional_enum')):
             raise AudioError('部署消息包与已配置庆祝动作不匹配。')
-        if 'preset' in profile:
-            if getattr(McPresetMotion, 'DEFAULT_POS', None) != 0:
-                raise AudioError('默认姿态枚举未确认。')
-            resources = self._rpc('GetMcMotions', self._request('GetMcMotions')).motion
-            for value in (0, profile['preset']):
-                item = next((item for item in resources if item.tag == str(value)), None)
-                if item is None or item.type.value != 1 or item.intr_info.intr_type.value != 1:
-                    raise AudioError('预设动作资源缺失或不能自由打断；未发送动作。')
-        if 'motion' in profile:
-            self._mimic_request(profile)
-            resources = self._rpc('GetMcMotions', self._request('GetMcMotions')).motion
-            item = next((item for item in resources if item.tag == profile['motion']), None)
-            if item is None or item.intr_info.intr_type.value != 1:
-                raise AudioError('四足难过资源缺失或不能自由打断，未发送动作。')
-            resource_type = getattr(item, 'type', None)
-            # 注册资源 MIMIC=2 与请求 MIMIC_QY=1 属于不同枚举；必须匹配运行时符号。
-            # 本地登记证据确认 MIMIC=2，消息包没有符号时不从请求类型推导。
-            if (getattr(resource_type, 'MIMIC', None) != 2
-                    or type(getattr(resource_type, 'value', None)) is not int
-                    or resource_type.value != resource_type.MIMIC):
-                raise AudioError('四足难过注册资源类型未匹配 MIMIC，未发送动作。')
+        if 'preset' in profile or 'motion' in profile:
+            resources = self._rpc('GetMcMotions', self._request(
+                'GetMcMotions', form=profile.get('form', 0))).motion
+            try:
+                if 'preset' in profile:
+                    validate_preset_resources(profile_name, profile, resources, McPresetMotion)
+                else:
+                    self._mimic_request(profile)
+                    validate_t1_mimic_resource(resources, profile['motion'])
+            except ValueError as error:
+                raise AudioError(str(error)) from None
         route = None
         if profile_name == 'T1_quad' and mood == 'happy':
             verified_step = settings.get('verified_step', {})
@@ -752,15 +720,16 @@ class Celebration:
                     break
             if time.monotonic() >= deadline:
                 raise AudioError('恢复前未确认自有任务，未覆盖外部动作。')
+        return_action = self._profile(motion).get('return_mode', motion['initial_action'])
         if motion['stage'] == 'return' and not route:
-            self._wait_mode(motion['initial_action'], cleanup=True)
+            self._wait_mode(return_action, cleanup=True)
         if motion['stage'] == 'preset':
             self._preset(0, 'reset', cleanup=True)
         if motion['stage'] == 'reset':
             self._wait_preset(cleanup=True)
         info = self._safe(stationary=motion['profile'] != 'T1_quad', cleanup=True)
-        if info.current_action.value != motion['initial_action']:
-            returning = ([motion['initial_action']] if not route or info.current_action.value == 121
+        if info.current_action.value != return_action:
+            returning = ([return_action] if not route or info.current_action.value == 121
                          else route['return'])
             for action in returning:
                 self._mode(action, 'return', cleanup=True)

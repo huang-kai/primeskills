@@ -236,7 +236,8 @@ class CelebrationTests(unittest.TestCase):
         effects = self.build(True)
         effects.celebrate('win')
         self.assertEqual(self.robot.writes, [('action', 300), ('preset', 2002),
-                                             ('preset', 0), ('action', 201)])
+                                             ('preset', 0)])
+        self.assertEqual(self.robot.action, 300)
         self.assertFalse(effects.path.exists())
 
     def test_q1_happiness_and_reset_are_preset_protocol(self):
@@ -964,13 +965,13 @@ class CelebrationTests(unittest.TestCase):
         effects = self.build(True, verified_sad={'T1_biped': True})
         result = effects.celebrate('lose')
         self.assertEqual(self.robot.writes, [('action', 300), ('preset', 2033),
-                                            ('preset', 0), ('action', 201)])
+                                            ('preset', 0)])
         self.assertEqual(result['motion']['status'], 'completed')
         self.assertEqual([item[0] for item in self.robot.faces], [[21], [13]])
         self.assertFalse(effects.path.exists())
 
-    def test_biped_sad_missing_or_mismatched_symbol_never_sends_numeric_fallback(self):
-        for value in (None, 999):
+    def test_biped_sad_mismatched_symbol_never_sends_numeric_fallback(self):
+        for value in (0, 999):
             with self.subTest(value=value):
                 self.robot = FakeRobot()
                 sys.modules['aimdk_msgs.msg'].McPresetMotion.HUMANOID_SAD = value
@@ -978,6 +979,36 @@ class CelebrationTests(unittest.TestCase):
                 result = effects.celebrate('lose')
                 self.assertEqual(result['motion']['status'], 'unavailable')
                 self.assertEqual(self.robot.writes, [])
+
+    def test_biped_sad_missing_enum_requires_enumerated_2033(self):
+        del sys.modules['aimdk_msgs.msg'].McPresetMotion.HUMANOID_SAD
+        effects = self.build(True, verified_sad={'T1_biped': True})
+        result = effects.celebrate('lose')
+        self.assertEqual(result['motion']['status'], 'completed')
+        self.assertIn(('preset', 2033), self.robot.writes)
+
+    def test_t1_reset_is_a_command_but_q1_requires_reset_resource(self):
+        from chengyu_game.robot.motion_profiles import validate_preset_resources, PROFILES
+        resources = self.robot.rpc('GetMcMotions', request()).motion
+        resources = [r for r in resources if r.tag != '0']
+        validate_preset_resources('T1_biped', PROFILES['T1_biped'], resources,
+                                  sys.modules['aimdk_msgs.msg'].McPresetMotion)
+        with self.assertRaises(ValueError):
+            validate_preset_resources('Q1', PROFILES['Q1'], resources,
+                                      sys.modules['aimdk_msgs.msg'].McPresetMotion)
+
+    def test_t1_named_quad_mimic_none_type_is_supported_but_animation_is_not(self):
+        from chengyu_game.robot.motion_profiles import validate_t1_mimic_resource
+        item = NS(tag='QUAD_MIMIC_SAD', type=NS(NONE=0, MIMIC=2, value=0),
+                  intr_info=NS(intr_type=NS(value=1)))
+        validate_t1_mimic_resource([item], item.tag)
+        item.type.value = 1
+        with self.assertRaises(ValueError):
+            validate_t1_mimic_resource([item], item.tag)
+        item.type.value = 0
+        item.intr_info.intr_type.value = 0
+        with self.assertRaises(ValueError):
+            validate_t1_mimic_resource([item], item.tag)
 
     def test_quad_sad_waits_for_owned_mimic_and_natural_stationary_return(self):
         self.robot.action, self.robot.form = 102, 1

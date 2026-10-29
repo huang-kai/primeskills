@@ -129,7 +129,7 @@ class MusicEffectsTests(unittest.TestCase):
             effects.set_stand, effects.wait_stand = Mock(), Mock()
             with patch(MODULE + '.time.monotonic', return_value=10):
                 effects.restore_stand()
-            self.assertEqual(effects.stand_action, standing)
+            self.assertEqual(effects.stand_action, 300)
             effects.set_stand.assert_called_once_with(cleanup=True)
 
     def test_biped_dance_completion_restarts_without_changing_to_quad(self):
@@ -309,7 +309,7 @@ class PrepareStandTests(unittest.TestCase):
             lift_state=Item(is_lifted=False), held_state=Item(is_held=False))
 
     def test_prone_quad_stands_once_and_clears_record_after_confirmation(self):
-        for action in (1, 110):
+        for action in (110,):
             self.state(action)
             e = self.effects
             e.set_stand.reset_mock()
@@ -329,7 +329,7 @@ class PrepareStandTests(unittest.TestCase):
         for action in (101, 102, 201, 300):
             self.state(action)
             self.effects.prepare()
-            self.assertEqual(self.effects.stand_action, action)
+            self.assertEqual(self.effects.stand_action, 300 if action == 201 else action)
         self.effects.set_stand.assert_not_called()
         self.effects.wait_stand.assert_not_called()
         self.assertFalse(self.effects.record.exists())
@@ -343,7 +343,7 @@ class PrepareStandTests(unittest.TestCase):
 
     def test_unsafe_or_stale_feedback_cannot_start_rising(self):
         for kind in ('moving', 'fallen', 'lifted', 'held', 'stale', 'different_action', 'transition'):
-            self.state(1)
+            self.state(110)
             e = self.effects
             e.motion_received_at = 10
             if kind == 'moving': e.motion_state.is_moving = True
@@ -351,27 +351,27 @@ class PrepareStandTests(unittest.TestCase):
             if kind == 'lifted': e.motion_state.lift_state.is_lifted = True
             if kind == 'held': e.motion_state.held_state.is_held = True
             if kind == 'stale': e.motion_received_at = 7
-            if kind == 'different_action': e.motion_state.action_info = Item(current_action=Item(value=110))
+            if kind == 'different_action': e.motion_state.action_info = Item(current_action=Item(value=101))
             if kind == 'transition': e.action.return_value.status.value = 200
             with self.subTest(kind=kind), self.assertRaises(AudioError): e.prepare()
         e.set_stand.assert_not_called()
 
     def test_resource_failure_prevents_stand(self):
-        self.state(1)
+        self.state(110)
         self.effects.require_resource.side_effect = AudioError('缺动作资源')
         with self.assertRaises(AudioError): self.effects.prepare()
         self.effects.set_stand.assert_not_called()
 
     def test_pose_change_during_resource_check_prevents_stand(self):
-        self.state(1)
-        def change(): self.state(110)
+        self.state(110)
+        def change(): self.state(101)
         self.effects.require_resource.side_effect = change
         with self.assertRaisesRegex(AudioError, '姿态已变化'): self.effects.prepare()
         self.effects.set_stand.assert_not_called()
 
     def test_unknown_stand_result_preserves_record_and_does_not_retry(self):
         for failed in ('set_stand', 'wait_stand'):
-            self.state(1)
+            self.state(110)
             e = self.effects
             e.record.unlink(missing_ok=True)
             e.set_stand, e.wait_stand = Mock(), Mock()
@@ -382,7 +382,7 @@ class PrepareStandTests(unittest.TestCase):
             e.set_stand.assert_called_once()
 
     def test_existing_record_prevents_motion(self):
-        self.state(1)
+        self.state(110)
         self.effects.record.write_text('keep')
         with self.assertRaises(FileExistsError): self.effects.prepare()
         self.effects.set_stand.assert_not_called()

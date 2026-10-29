@@ -118,5 +118,7 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
+    from chengyu_game.robot.native_sdk import bootstrap
+    bootstrap()
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     raise SystemExit(main())

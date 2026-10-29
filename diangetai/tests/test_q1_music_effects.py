@@ -23,6 +23,7 @@ class Request:
         self.command = Item(action=Item(value=0), action_desc='')
         self.motion = Item(value=0)
         self.area = Item(value=0)
+        self.form_state = Item(UNKNOWN=0, current_form=0)
 
 
 def service(name):
