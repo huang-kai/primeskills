@@ -1,0 +1,18 @@
+# 第一阶段每轮通知一位家属。电话号码、模板编号、密钥等文本请用引号。
+contact:
+  phone: ''
+sms:
+  provider: 'aliyun'  # aliyun 或 https_gateway
+  aliyun:
+    sign_name: ''
+    template_code: ''
+    time_variable: 'time'
+    access_key_id: ''
+    access_key_secret: ''
+  https_gateway:
+    url: ''
+    bearer_token: ''
+detection:
+  hold_seconds: 2.0
+voice:
+  response_seconds: 30

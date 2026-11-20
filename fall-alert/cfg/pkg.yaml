@@ -1,0 +1,6 @@
+user_id: robot_local
+version: 0.1.5
+sdk_version: v1.0.0
+package_name: fall-alert
+author: KK
+description: T1 单次倒地看护，双足和四足站稳后检测，现场询问并按答复通知一位家属。
